@@ -1,0 +1,7 @@
+[project]
+name = "seniorenradio"
+version = "0.1.0"
+description = "An easy-to-use and intuitive radio app for seniors to run on a Raspberry Pi"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = []
