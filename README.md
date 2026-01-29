@@ -8,6 +8,7 @@ An easy-to-use and intuitive internet radio application for seniors, designed to
 - **Simple on/off control** via selector switch
 - **Voice announcements** when switching channels
 - **Automatic retry** on stream connection failure
+- **Safe shutdown** via long-press (5 seconds) on channel 1 button
 - **Low resource usage** optimized for Raspberry Pi
 
 ## Hardware Requirements
@@ -136,6 +137,9 @@ Place your announcement audio files in the `audio/` directory:
 - `error_retrying.mp3`: Played when retrying connection
 - `error_failed.mp3`: Played when all retries failed
 - `error_no_internet.mp3`: Played when no internet connection
+- `goodbye.mp3`: Played when radio is turned off
+- `selector_off.mp3`: Played when radio starts with selector switch off
+- `shutdown.mp3`: Played before system shutdown (triggered by holding channel 1 for 5 seconds)
 
 See `audio/README.md` for recording tips and example scripts.
 

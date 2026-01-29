@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 # Type aliases for callbacks
 ChannelCallback = Callable[[int], None]
 SwitchCallback = Callable[[SwitchPosition], None]
+ShutdownCallback = Callable[[], None]
+
+# Long-press threshold in seconds
+LONG_PRESS_THRESHOLD_SECONDS = 5.0
 
 
 class GpioInterface(Protocol):
@@ -94,6 +98,7 @@ class GpioController:
         gpio: GpioInterface,
         on_channel_button: ChannelCallback,
         on_switch_change: SwitchCallback,
+        on_shutdown_requested: ShutdownCallback | None = None,
     ) -> None:
         """Initialize GPIO controller.
 
@@ -102,16 +107,21 @@ class GpioController:
             gpio: GPIO interface implementation.
             on_channel_button: Callback for channel button presses.
             on_switch_change: Callback for switch position changes.
+            on_shutdown_requested: Callback for shutdown request via long-press.
         """
         self._config = config
         self._gpio = gpio
         self._on_channel_button = on_channel_button
         self._on_switch_change = on_switch_change
+        self._on_shutdown_requested = on_shutdown_requested
         self._lock = Lock()
         self._last_button_time: dict[int, float] = {}
         self._last_switch_state: bool | None = None
         self._running = False
         self._switch_monitor_thread: Thread | None = None
+        self._channel1_press_start: float | None = None
+        self._long_press_monitor_thread: Thread | None = None
+        self._shutdown_triggered = False
 
     def start(self) -> None:
         """Initialize GPIO pins and start monitoring."""
@@ -146,6 +156,14 @@ class GpioController:
         )
         self._switch_monitor_thread.start()
 
+        # Start long-press monitor if shutdown callback is provided
+        if self._on_shutdown_requested is not None:
+            self._long_press_monitor_thread = Thread(
+                target=self._monitor_long_press,
+                daemon=True,
+            )
+            self._long_press_monitor_thread.start()
+
     def _handle_button_press(self, pin: int) -> None:
         """Handle button press event with debouncing.
 
@@ -166,9 +184,52 @@ class GpioController:
         try:
             channel_index = self._config.channel_pins.index(pin)
             logger.info("Channel %d button pressed (GPIO %d)", channel_index + 1, pin)
+
+            # Track press start for channel 1 (index 0) long-press detection
+            if channel_index == 0 and self._on_shutdown_requested is not None:
+                with self._lock:
+                    if not self._shutdown_triggered:
+                        self._channel1_press_start = current_time
+                        logger.debug(
+                            "Channel 1 press started, monitoring for long-press"
+                        )
+
             self._on_channel_button(channel_index)
         except ValueError:
             logger.warning("Unknown button pin: %d", pin)
+
+    def _monitor_long_press(self) -> None:
+        """Monitor channel 1 button for long-press to trigger shutdown."""
+        channel1_pin = self._config.channel_pins[0]
+
+        while self._running:
+            with self._lock:
+                press_start = self._channel1_press_start
+
+            if press_start is not None:
+                # Check if button is still held
+                button_still_pressed = not self._gpio.read(channel1_pin)
+
+                if button_still_pressed:
+                    elapsed = time.time() - press_start
+                    if elapsed >= LONG_PRESS_THRESHOLD_SECONDS:
+                        with self._lock:
+                            if not self._shutdown_triggered:
+                                self._shutdown_triggered = True
+                                self._channel1_press_start = None
+
+                        logger.info(
+                            "Long-press detected (%.1f seconds), requesting shutdown",
+                            elapsed,
+                        )
+                        if self._on_shutdown_requested is not None:
+                            self._on_shutdown_requested()
+                else:
+                    # Button was released before threshold
+                    with self._lock:
+                        self._channel1_press_start = None
+
+            time.sleep(0.1)  # Poll every 100ms
 
     def _monitor_switch(self) -> None:
         """Monitor selector switch for state changes."""
@@ -200,4 +261,6 @@ class GpioController:
         self._running = False
         if self._switch_monitor_thread is not None:
             self._switch_monitor_thread.join(timeout=1.0)
+        if self._long_press_monitor_thread is not None:
+            self._long_press_monitor_thread.join(timeout=1.0)
         self._gpio.cleanup()

@@ -88,12 +88,17 @@ class RadioController:
         with self._lock:
             self._state = self._state.with_switch(initial_switch_position)
 
-            if initial_switch_position == SwitchPosition.ON:
-                channel = self._get_channel(self._state.selected_channel_index)
-                if channel is not None:
-                    logger.info("Startup with switch ON, playing default channel")
-                    success = self._announce_and_play_channel(channel)
-                    self._state = self._state.with_stream_active(success)
+            match initial_switch_position:
+                case SwitchPosition.ON:
+                    channel = self._get_channel(self._state.selected_channel_index)
+                    if channel is not None:
+                        logger.info("Startup with switch ON, playing default channel")
+                        success = self._announce_and_play_channel(channel)
+                        self._state = self._state.with_stream_active(success)
+
+                case SwitchPosition.OFF:
+                    logger.info("Startup with switch OFF, playing info announcement")
+                    self._audio.play_selector_off_announcement()
 
     def handle_channel_button(self, channel_index: int) -> None:
         """Handle channel button press.
@@ -157,6 +162,16 @@ class RadioController:
                     self._audio.stop()
                     self._audio.play_goodbye_announcement()
                     self._state = self._state.with_stream_active(False)
+
+    def handle_shutdown_request(self) -> None:
+        """Handle shutdown request from long-press on channel 1 button.
+
+        Stops current playback and plays shutdown announcement.
+        """
+        with self._lock:
+            logger.info("Shutdown requested via long-press")
+            self._audio.stop()
+            self._audio.play_shutdown_announcement()
 
     def shutdown(self) -> None:
         """Perform graceful shutdown."""

@@ -73,6 +73,8 @@ class AppConfig:
     audio_dir: Path
     error_announcements: ErrorAnnouncementsConfig
     goodbye_announcement: Path
+    selector_off_announcement: Path
+    shutdown_announcement: Path
 
 
 @dataclass(frozen=True)

@@ -77,6 +77,8 @@ class ConfigSchema(BaseModel):
         default_factory=ErrorAnnouncementsSchema
     )
     goodbye_announcement: str = "goodbye.mp3"
+    selector_off_announcement: str = "selector_off.mp3"
+    shutdown_announcement: str = "shutdown.mp3"
 
     @field_validator("channels")
     @classmethod
@@ -159,4 +161,6 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:
             no_internet=audio_dir / schema.error_announcements.no_internet,
         ),
         goodbye_announcement=audio_dir / schema.goodbye_announcement,
+        selector_off_announcement=audio_dir / schema.selector_off_announcement,
+        shutdown_announcement=audio_dir / schema.shutdown_announcement,
     )

@@ -6,6 +6,7 @@ A simple internet radio application for older adults on Raspberry Pi.
 import argparse
 import logging
 import signal
+import subprocess
 import sys
 from pathlib import Path
 from types import FrameType
@@ -105,6 +106,8 @@ def main() -> int:
         retry_config=config.retry,
         error_announcements=config.error_announcements,
         goodbye_announcement=config.goodbye_announcement,
+        selector_off_announcement=config.selector_off_announcement,
+        shutdown_announcement=config.shutdown_announcement,
     )
 
     radio_controller = RadioController(
@@ -113,11 +116,22 @@ def main() -> int:
     )
 
     gpio = RpiGpioAdapter()
+
+    # Define shutdown callback for long-press
+    def handle_shutdown_request() -> None:
+        nonlocal shutdown_requested
+        radio_controller.handle_shutdown_request()
+        shutdown_requested = True
+        # Execute system shutdown after announcement
+        logger.info("Executing system shutdown")
+        subprocess.run(["sudo", "shutdown", "-h", "now"], check=False)
+
     gpio_controller = GpioController(
         config=config.gpio,
         gpio=gpio,
         on_channel_button=radio_controller.handle_channel_button,
         on_switch_change=radio_controller.handle_switch_change,
+        on_shutdown_requested=handle_shutdown_request,
     )
 
     # Setup signal handlers for graceful shutdown

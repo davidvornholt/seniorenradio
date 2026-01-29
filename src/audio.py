@@ -59,6 +59,14 @@ class AudioPlayer(Protocol):
         """Play goodbye announcement when radio is turned off."""
         ...
 
+    def play_selector_off_announcement(self) -> None:
+        """Play announcement when radio starts with selector switch off."""
+        ...
+
+    def play_shutdown_announcement(self) -> None:
+        """Play announcement before system shutdown."""
+        ...
+
     def cleanup(self) -> None:
         """Clean up resources."""
         ...
@@ -73,6 +81,8 @@ class MpvAudioPlayer:
         retry_config: RetryConfig,
         error_announcements: ErrorAnnouncementsConfig,
         goodbye_announcement: Path,
+        selector_off_announcement: Path,
+        shutdown_announcement: Path,
     ) -> None:
         """Initialize MPV audio player.
 
@@ -81,11 +91,15 @@ class MpvAudioPlayer:
             retry_config: Retry settings for stream failures.
             error_announcements: Error announcement audio files.
             goodbye_announcement: Goodbye audio file for switch-off.
+            selector_off_announcement: Audio file for when starting with switch off.
+            shutdown_announcement: Audio file for system shutdown.
         """
         self._audio_config = audio_config
         self._retry_config = retry_config
         self._error_announcements = error_announcements
         self._goodbye_announcement = goodbye_announcement
+        self._selector_off_announcement = selector_off_announcement
+        self._shutdown_announcement = shutdown_announcement
         self._lock = Lock()
         self._player: mpv.MPV | None = None
         self._is_stream_active = False
@@ -344,6 +358,14 @@ class MpvAudioPlayer:
     def play_goodbye_announcement(self) -> None:
         """Play goodbye announcement when radio is turned off."""
         self.play_announcement(self._goodbye_announcement)
+
+    def play_selector_off_announcement(self) -> None:
+        """Play announcement when radio starts with selector switch off."""
+        self.play_announcement(self._selector_off_announcement)
+
+    def play_shutdown_announcement(self) -> None:
+        """Play announcement before system shutdown."""
+        self.play_announcement(self._shutdown_announcement)
 
     def _stop_internal(self) -> None:
         """Stop playback without acquiring lock (internal use)."""
