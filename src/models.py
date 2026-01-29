@@ -72,6 +72,7 @@ class AppConfig:
     default_channel_index: int
     audio_dir: Path
     error_announcements: ErrorAnnouncementsConfig
+    goodbye_announcement: Path
 
 
 @dataclass(frozen=True)

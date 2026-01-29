@@ -104,6 +104,7 @@ def main() -> int:
         audio_config=config.audio,
         retry_config=config.retry,
         error_announcements=config.error_announcements,
+        goodbye_announcement=config.goodbye_announcement,
     )
 
     radio_controller = RadioController(

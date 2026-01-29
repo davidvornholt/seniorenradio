@@ -28,6 +28,12 @@ class AudioPlayer(Protocol):
         """Start playing an internet stream."""
         ...
 
+    def play_announcement_with_stream_preload(
+        self, announcement_file: Path, stream_url: str
+    ) -> bool:
+        """Play announcement while preloading stream, then unmute stream."""
+        ...
+
     def play_retrying_announcement(self) -> None:
         """Play announcement that system is retrying connection."""
         ...
@@ -48,6 +54,10 @@ class AudioPlayer(Protocol):
         """Check if stream is currently playing."""
         ...
 
+    def play_goodbye_announcement(self) -> None:
+        """Play goodbye announcement when radio is turned off."""
+        ...
+
     def cleanup(self) -> None:
         """Clean up resources."""
         ...
@@ -61,6 +71,7 @@ class MpvAudioPlayer:
         audio_config: AudioConfig,
         retry_config: RetryConfig,
         error_announcements: ErrorAnnouncementsConfig,
+        goodbye_announcement: Path,
     ) -> None:
         """Initialize MPV audio player.
 
@@ -68,10 +79,12 @@ class MpvAudioPlayer:
             audio_config: Audio output configuration.
             retry_config: Retry settings for stream failures.
             error_announcements: Error announcement audio files.
+            goodbye_announcement: Goodbye audio file for switch-off.
         """
         self._audio_config = audio_config
         self._retry_config = retry_config
         self._error_announcements = error_announcements
+        self._goodbye_announcement = goodbye_announcement
         self._lock = Lock()
         self._stream_player: mpv.MPV | None = None
         self._is_stream_active = False
@@ -201,6 +214,74 @@ class MpvAudioPlayer:
             )
             return False
 
+    def play_announcement_with_stream_preload(
+        self, announcement_file: Path, stream_url: str
+    ) -> bool:
+        """Play announcement while preloading stream in background.
+
+        Starts the stream muted, plays the announcement, then unmutes the stream.
+        This reduces perceived latency when switching channels.
+
+        Args:
+            announcement_file: Path to announcement audio file.
+            stream_url: URL of stream to preload.
+
+        Returns:
+            True if stream is playing after announcement, False otherwise.
+        """
+        with self._lock:
+            self._stop_stream_internal()
+
+            # Start stream muted for prebuffering
+            logger.info("Preloading stream (muted): %s", stream_url)
+            self._stream_player = self._create_player(for_stream=True)
+            self._stream_player.volume = 0  # Mute during announcement
+            self._stream_player.play(stream_url)
+
+        # Play announcement (this blocks, allowing stream to buffer)
+        logger.info("Playing announcement while stream buffers")
+        self.play_announcement(announcement_file)
+
+        with self._lock:
+            # Check if stream has started buffering
+            if self._stream_player is None:
+                logger.error("Stream player was terminated during announcement")
+                return False
+
+            # Unmute the stream
+            logger.info("Unmuting stream")
+            self._stream_player.volume = self._audio_config.volume
+
+            # Verify stream is playing
+            try:
+                playback_time = self._stream_player.playback_time
+                if playback_time is not None and playback_time >= 0:
+                    self._is_stream_active = True
+                    logger.info("Stream ready (playback_time: %s)", playback_time)
+                    return True
+            except Exception:
+                pass
+
+            # If not ready yet, wait a bit more
+            for _ in range(10):
+                time.sleep(0.3)
+                try:
+                    playback_time = self._stream_player.playback_time
+                    if playback_time is not None and playback_time >= 0:
+                        self._is_stream_active = True
+                        logger.info(
+                            "Stream connected (playback_time: %s)", playback_time
+                        )
+                        return True
+                except Exception:
+                    pass
+
+            logger.warning("Stream did not start during preload, trying normal connect")
+            self._stop_stream_internal()
+
+        # Fall back to normal stream connection with retries
+        return self.play_stream(stream_url)
+
     def play_retrying_announcement(self) -> None:
         """Play announcement that system is retrying connection."""
         self.play_announcement(self._error_announcements.retrying)
@@ -212,6 +293,10 @@ class MpvAudioPlayer:
     def play_no_internet_announcement(self) -> None:
         """Play announcement that there is no internet connection."""
         self.play_announcement(self._error_announcements.no_internet)
+
+    def play_goodbye_announcement(self) -> None:
+        """Play goodbye announcement when radio is turned off."""
+        self.play_announcement(self._goodbye_announcement)
 
     def _stop_stream_internal(self) -> None:
         """Stop stream without acquiring lock (internal use)."""

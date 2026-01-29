@@ -66,3 +66,7 @@ channels:
 
 # Default channel to play on startup (0-based index)
 default_channel: 0
+
+# Goodbye announcement when radio is turned off
+# German example: "Auf Wiederhören."
+goodbye_announcement: "goodbye.mp3"

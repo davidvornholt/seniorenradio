@@ -56,6 +56,9 @@ class RadioController:
     def _announce_and_play_channel(self, channel: Channel) -> bool:
         """Announce channel name and start stream.
 
+        Uses preloading to start the stream while the announcement plays,
+        reducing the perceived delay when switching channels.
+
         Args:
             channel: Channel to play.
 
@@ -63,10 +66,12 @@ class RadioController:
             True if stream started successfully.
         """
         logger.info("Announcing channel: %s", channel.name)
-        self._audio.play_announcement(channel.announcement_file)
 
-        logger.info("Starting stream: %s", channel.stream_url)
-        success = self._audio.play_stream(channel.stream_url)
+        # Use preloading: start stream muted, play announcement, then unmute
+        success = self._audio.play_announcement_with_stream_preload(
+            channel.announcement_file,
+            channel.stream_url,
+        )
 
         if not success:
             logger.error("Failed to start stream for channel: %s", channel.name)
@@ -150,6 +155,7 @@ class RadioController:
                 case SwitchPosition.OFF:
                     logger.info("Switch turned OFF, stopping playback")
                     self._audio.stop()
+                    self._audio.play_goodbye_announcement()
                     self._state = self._state.with_stream_active(False)
 
     def shutdown(self) -> None:
