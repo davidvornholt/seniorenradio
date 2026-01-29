@@ -164,13 +164,23 @@ class MpvAudioPlayer:
                     self._stream_player = self._create_player(for_stream=True)
                     self._stream_player.play(url)
 
-                    # Wait briefly to check if stream connects
-                    time.sleep(2)
-
-                    if self._stream_player.core_idle is False:
-                        self._is_stream_active = True
-                        logger.info("Stream connected successfully")
-                        return True
+                    # Wait for stream to start buffering/playing
+                    # Check multiple times over a few seconds
+                    for _ in range(10):
+                        time.sleep(0.5)
+                        try:
+                            # Check if playback has started
+                            playback_time = self._stream_player.playback_time
+                            if playback_time is not None and playback_time >= 0:
+                                self._is_stream_active = True
+                                logger.info(
+                                    "Stream connected successfully (playback_time: %s)",
+                                    playback_time,
+                                )
+                                return True
+                        except Exception:
+                            # Property might not be available yet
+                            pass
 
                     logger.warning("Stream failed to start on attempt %d", attempt)
                     self._stop_stream_internal()
