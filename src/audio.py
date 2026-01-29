@@ -312,14 +312,14 @@ class MpvAudioPlayer:
 
             # Poll for stream to start playing (up to 3 seconds)
             # Short announcements may not give enough prefetch time
-            for i in range(30):
+            for i in range(50):
                 time.sleep(0.1)
                 with self._lock:
                     if self._is_player_playing():
                         self._is_stream_active = True
                         logger.info(
                             "Stream playing after seamless transition (waited %.1fs)",
-                            (i + 1) * 0.3,
+                            (i + 1) * 0.1,
                         )
                         return True
 
