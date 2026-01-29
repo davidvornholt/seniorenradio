@@ -197,8 +197,8 @@ class MpvAudioPlayer:
                     self._player.play(url)
 
                     # Wait for stream to start
-                    for _ in range(10):
-                        time.sleep(0.5)
+                    for _ in range(50):
+                        time.sleep(0.1)
                         if self._is_player_playing():
                             playback_time = self._player.playback_time
                             self._is_stream_active = True
@@ -286,7 +286,8 @@ class MpvAudioPlayer:
 
                 @self._player.event_callback("end-file")
                 def on_end_file(event: mpv.MpvEvent) -> None:
-                    reason = event.get("reason", "unknown") if event else "unknown"
+                    # MpvEvent uses attribute access, not dict-style
+                    reason = getattr(event, "reason", None) if event else None
                     if reason == "error":
                         logger.error("Playback error: %s", event)
                         self._playback_error.set()
@@ -305,18 +306,22 @@ class MpvAudioPlayer:
         # Wait for transition to stream (outside lock to allow callbacks)
         # Typical announcement is 3-5 seconds, add some buffer
         if self._stream_started.wait(timeout=15.0):
-            # Give stream a moment to start producing audio
-            time.sleep(0.3)
-
             if self._playback_error.is_set():
                 logger.warning("Stream error during prefetch, retrying normally")
                 return self.play_stream(stream_url)
 
-            with self._lock:
-                if self._is_player_playing():
-                    self._is_stream_active = True
-                    logger.info("Stream playing after seamless transition")
-                    return True
+            # Poll for stream to start playing (up to 3 seconds)
+            # Short announcements may not give enough prefetch time
+            for i in range(30):
+                time.sleep(0.1)
+                with self._lock:
+                    if self._is_player_playing():
+                        self._is_stream_active = True
+                        logger.info(
+                            "Stream playing after seamless transition (waited %.1fs)",
+                            (i + 1) * 0.3,
+                        )
+                        return True
 
             logger.warning("Stream not playing after transition, retrying")
             return self.play_stream(stream_url)
