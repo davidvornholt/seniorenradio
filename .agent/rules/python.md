@@ -1,5 +1,5 @@
 ---
-trigger: glob
+trigger: always_on
 globs: *.py
 ---
 
@@ -9,7 +9,7 @@ This project adheres to ultra-strict modern Python standards. All code generated
 
 ## Environment & Tooling
 
-- **Python Version**: Python 3.15+ (use enhanced pattern matching, and new typing features).
+- **Python Version**: Python 3.14+ (use enhanced pattern matching, and new typing features).
 - **Dependency Management**: Always use `uv`. Run commands via `uv run`.
 - **Linting & Formatting**: Use `Ruff`.
 - **Type Checking**: Use `Pyrefly` (strict mode).

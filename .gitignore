@@ -8,3 +8,11 @@ wheels/
 
 # Virtual environments
 .venv
+
+# User configuration (copy from config.example.yaml)
+config/config.yaml
+
+# Audio announcement files (user-provided)
+audio/*.mp3
+audio/*.wav
+audio/*.ogg
