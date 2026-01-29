@@ -210,30 +210,34 @@ class MpvAudioPlayer:
             return False
 
     def _is_stream_ready(self) -> bool:
-        """Check if the stream player is actively playing audio.
+        """Check if the stream player has buffered enough data to play.
+
+        Uses buffer-based detection which works even when muted (volume=0).
+        The previous core_idle check failed because muted streams don't
+        actively decode audio.
 
         Returns:
-            True if the stream is ready and producing audio, False otherwise.
+            True if the stream has buffered and is ready to play.
         """
         if self._stream_player is None:
             return False
 
         try:
-            # Check if MPV core is idle (not actively decoding)
-            # core-idle is False when actively decoding/playing
-            core_idle = self._stream_player.core_idle
-            if core_idle:
-                return False
-
-            # Check playback_time - must be > 0 to confirm actual playback
-            # A value of 0.0 just means initialized, not actually playing
+            # Check if we have playback time > 0 (stream is actively playing)
             playback_time = self._stream_player.playback_time
             if playback_time is not None and playback_time > 0:
                 return True
 
-            # Also check if we have a valid time-pos (current position in stream)
+            # Check time-pos (current position in stream)
             time_pos = self._stream_player.time_pos
-            return time_pos is not None and time_pos > 0
+            if time_pos is not None and time_pos > 0:
+                return True
+
+            # Check demuxer cache - how many seconds are buffered
+            # This works even when muted/volume=0
+            # We need at least 0.5 seconds buffered to consider it ready
+            cache_time = self._stream_player.demuxer_cache_time
+            return cache_time is not None and cache_time > 0.5
         except Exception:
             return False
 
@@ -282,6 +286,18 @@ class MpvAudioPlayer:
             if self._stream_player is None:
                 logger.error("Stream player was terminated during announcement")
                 return False
+
+            # Log stream state for diagnostics
+            try:
+                cache_time = self._stream_player.demuxer_cache_time
+                playback_time = self._stream_player.playback_time
+                logger.info(
+                    "Stream state: cache_time=%s, playback_time=%s",
+                    cache_time,
+                    playback_time,
+                )
+            except Exception:
+                logger.warning("Could not read stream state")
 
             # Unmute immediately - the stream should have buffered during announcement
             logger.info("Unmuting stream")
