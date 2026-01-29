@@ -7,7 +7,7 @@ import contextlib
 import logging
 import time
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Thread
 from typing import Protocol
 
 import mpv
@@ -181,19 +181,14 @@ class MpvAudioPlayer:
                     # Check multiple times over a few seconds
                     for _ in range(10):
                         time.sleep(0.5)
-                        try:
-                            # Check if playback has started
+                        if self._is_stream_ready():
                             playback_time = self._stream_player.playback_time
-                            if playback_time is not None and playback_time >= 0:
-                                self._is_stream_active = True
-                                logger.info(
-                                    "Stream connected successfully (playback_time: %s)",
-                                    playback_time,
-                                )
-                                return True
-                        except Exception:
-                            # Property might not be available yet
-                            pass
+                            self._is_stream_active = True
+                            logger.info(
+                                "Stream connected successfully (playback_time: %s)",
+                                playback_time,
+                            )
+                            return True
 
                     logger.warning("Stream failed to start on attempt %d", attempt)
                     self._stop_stream_internal()
@@ -214,13 +209,41 @@ class MpvAudioPlayer:
             )
             return False
 
+    def _is_stream_ready(self) -> bool:
+        """Check if the stream player is actively playing audio.
+
+        Returns:
+            True if the stream is ready and producing audio, False otherwise.
+        """
+        if self._stream_player is None:
+            return False
+
+        try:
+            # Check if MPV core is idle (not actively decoding)
+            # core-idle is False when actively decoding/playing
+            core_idle = self._stream_player.core_idle
+            if core_idle:
+                return False
+
+            # Check playback_time - must be > 0 to confirm actual playback
+            # A value of 0.0 just means initialized, not actually playing
+            playback_time = self._stream_player.playback_time
+            if playback_time is not None and playback_time > 0:
+                return True
+
+            # Also check if we have a valid time-pos (current position in stream)
+            time_pos = self._stream_player.time_pos
+            return time_pos is not None and time_pos > 0
+        except Exception:
+            return False
+
     def play_announcement_with_stream_preload(
         self, announcement_file: Path, stream_url: str
     ) -> bool:
         """Play announcement while preloading stream in background.
 
-        Starts the stream muted, plays the announcement, then unmutes the stream.
-        This reduces perceived latency when switching channels.
+        Starts the announcement IMMEDIATELY in a parallel thread while
+        setting up the stream. This makes channel changes feel instant.
 
         Args:
             announcement_file: Path to announcement audio file.
@@ -229,6 +252,17 @@ class MpvAudioPlayer:
         Returns:
             True if stream is playing after announcement, False otherwise.
         """
+        # Start announcement playback immediately in a separate thread
+        # This way the user hears feedback instantly on button press
+        logger.info("Starting announcement in parallel: %s", announcement_file.name)
+        announcement_thread = Thread(
+            target=self._play_announcement_internal,
+            args=(announcement_file,),
+            daemon=True,
+        )
+        announcement_thread.start()
+
+        # While announcement plays, prepare the stream (this runs in parallel)
         with self._lock:
             self._stop_stream_internal()
 
@@ -238,43 +272,37 @@ class MpvAudioPlayer:
             self._stream_player.volume = 0  # Mute during announcement
             self._stream_player.play(stream_url)
 
-        # Play announcement (this blocks, allowing stream to buffer)
-        logger.info("Playing announcement while stream buffers")
-        self.play_announcement(announcement_file)
+        # Wait for announcement to finish
+        # Stream is buffering in the background during this time
+        announcement_thread.join()
+        logger.info("Announcement finished, stream should be buffered")
 
         with self._lock:
-            # Check if stream has started buffering
+            # Check if stream player still exists
             if self._stream_player is None:
                 logger.error("Stream player was terminated during announcement")
                 return False
 
-            # Unmute the stream
+            # Unmute immediately - the stream should have buffered during announcement
             logger.info("Unmuting stream")
             self._stream_player.volume = self._audio_config.volume
 
-            # Verify stream is playing
-            try:
+            # Quick check if stream is already playing
+            if self._is_stream_ready():
                 playback_time = self._stream_player.playback_time
-                if playback_time is not None and playback_time >= 0:
-                    self._is_stream_active = True
-                    logger.info("Stream ready (playback_time: %s)", playback_time)
-                    return True
-            except Exception:
-                pass
+                logger.info("Stream ready (playback_time: %s)", playback_time)
+                self._is_stream_active = True
+                return True
 
-            # If not ready yet, wait a bit more
-            for _ in range(10):
+            # Brief verification - stream may need a moment to start audio output
+            # Keep this short for snappy feel (max 1.5 seconds)
+            for _ in range(5):
                 time.sleep(0.3)
-                try:
+                if self._is_stream_ready():
                     playback_time = self._stream_player.playback_time
-                    if playback_time is not None and playback_time >= 0:
-                        self._is_stream_active = True
-                        logger.info(
-                            "Stream connected (playback_time: %s)", playback_time
-                        )
-                        return True
-                except Exception:
-                    pass
+                    self._is_stream_active = True
+                    logger.info("Stream connected (playback_time: %s)", playback_time)
+                    return True
 
             logger.warning("Stream did not start during preload, trying normal connect")
             self._stop_stream_internal()
