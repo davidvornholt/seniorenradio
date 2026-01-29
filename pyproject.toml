@@ -5,3 +5,12 @@ description = "An easy-to-use and intuitive radio app for seniors to run on a Ra
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = []
+
+[dependency-groups]
+dev = [
+    "pyrefly>=0.50.1",
+    "ruff>=0.14.14",
+]
+
+[tool.ruff.lint]
+extend-select = ["F", "E", "I", "B", "UP", "SIM", "N", "C4", "PTH"]
