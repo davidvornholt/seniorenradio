@@ -1,13 +1,14 @@
 """Audio service for Seniorenradio.
 
 MPV-based audio playback for announcements and internet radio streams.
+Uses playlist prefetching for seamless transition from announcement to stream.
 """
 
 import contextlib
 import logging
 import time
 from pathlib import Path
-from threading import Lock, Thread
+from threading import Event, Lock
 from typing import Protocol
 
 import mpv
@@ -31,7 +32,7 @@ class AudioPlayer(Protocol):
     def play_announcement_with_stream_preload(
         self, announcement_file: Path, stream_url: str
     ) -> bool:
-        """Play announcement while preloading stream, then unmute stream."""
+        """Play announcement while preloading stream, then seamlessly start stream."""
         ...
 
     def play_retrying_announcement(self) -> None:
@@ -64,7 +65,7 @@ class AudioPlayer(Protocol):
 
 
 class MpvAudioPlayer:
-    """MPV-based audio player implementation."""
+    """MPV-based audio player using playlist prefetching for seamless playback."""
 
     def __init__(
         self,
@@ -86,18 +87,42 @@ class MpvAudioPlayer:
         self._error_announcements = error_announcements
         self._goodbye_announcement = goodbye_announcement
         self._lock = Lock()
-        self._stream_player: mpv.MPV | None = None
+        self._player: mpv.MPV | None = None
         self._is_stream_active = False
+        self._stream_started = Event()
+        self._playback_error = Event()
 
-    def _create_player(self, for_stream: bool = False) -> mpv.MPV:
+    def _create_player(self, prefetch: bool = False) -> mpv.MPV:
         """Create a new MPV player instance.
 
         Args:
-            for_stream: If True, configure for streaming.
+            prefetch: If True, enable playlist prefetching for streaming.
 
         Returns:
             Configured MPV player instance.
         """
+        kwargs = {
+            "audio_device": self._audio_config.device,
+            "video": False,
+            "terminal": False,
+            "input_default_bindings": False,
+            "input_vo_keyboard": False,
+        }
+
+        if prefetch:
+            # Enable prefetching and caching for seamless playback
+            kwargs["prefetch_playlist"] = True
+            kwargs["cache"] = "yes"
+            kwargs["cache_secs"] = 10
+            kwargs["demuxer_max_bytes"] = "50MiB"
+
+        player = mpv.MPV(**kwargs)
+        player.volume = self._audio_config.volume
+
+        return player
+
+    def _create_standalone_player(self) -> mpv.MPV:
+        """Create a standalone player for simple announcements."""
         player = mpv.MPV(
             audio_device=self._audio_config.device,
             video=False,
@@ -106,12 +131,6 @@ class MpvAudioPlayer:
             input_vo_keyboard=False,
         )
         player.volume = self._audio_config.volume
-
-        if for_stream:
-            player.cache = "yes"
-            player.cache_secs = 10
-            player.demuxer_max_bytes = "50MiB"
-
         return player
 
     def play_announcement(self, file: Path) -> bool:
@@ -144,7 +163,7 @@ class MpvAudioPlayer:
             return False
 
         try:
-            player = self._create_player(for_stream=False)
+            player = self._create_standalone_player()
             player.play(str(file))
             player.wait_for_playback()
             player.terminate()
@@ -163,7 +182,7 @@ class MpvAudioPlayer:
             True if stream started successfully, False otherwise.
         """
         with self._lock:
-            self._stop_stream_internal()
+            self._stop_internal()
 
             for attempt in range(1, self._retry_config.max_attempts + 1):
                 logger.info(
@@ -174,15 +193,14 @@ class MpvAudioPlayer:
                 )
 
                 try:
-                    self._stream_player = self._create_player(for_stream=True)
-                    self._stream_player.play(url)
+                    self._player = self._create_player(prefetch=True)
+                    self._player.play(url)
 
-                    # Wait for stream to start buffering/playing
-                    # Check multiple times over a few seconds
+                    # Wait for stream to start
                     for _ in range(10):
                         time.sleep(0.5)
-                        if self._is_stream_ready():
-                            playback_time = self._stream_player.playback_time
+                        if self._is_player_playing():
+                            playback_time = self._player.playback_time
                             self._is_stream_active = True
                             logger.info(
                                 "Stream connected successfully (playback_time: %s)",
@@ -191,11 +209,11 @@ class MpvAudioPlayer:
                             return True
 
                     logger.warning("Stream failed to start on attempt %d", attempt)
-                    self._stop_stream_internal()
+                    self._stop_internal()
 
                 except Exception as e:
                     logger.exception("MPV error on attempt %d: %s", attempt, e)
-                    self._stop_stream_internal()
+                    self._stop_internal()
 
                 # Play retry announcement if we will retry
                 if attempt < self._retry_config.max_attempts:
@@ -209,121 +227,101 @@ class MpvAudioPlayer:
             )
             return False
 
-    def _is_stream_ready(self) -> bool:
-        """Check if the stream player has buffered enough data to play.
-
-        Uses buffer-based detection which works even when muted (volume=0).
-        The previous core_idle check failed because muted streams don't
-        actively decode audio.
+    def _is_player_playing(self) -> bool:
+        """Check if the player is connected and playing.
 
         Returns:
-            True if the stream has buffered and is ready to play.
+            True if playing.
         """
-        if self._stream_player is None:
+        if self._player is None:
             return False
 
         try:
-            # Check if we have playback time > 0 (stream is actively playing)
-            playback_time = self._stream_player.playback_time
-            if playback_time is not None and playback_time > 0:
-                return True
-
-            # Check time-pos (current position in stream)
-            time_pos = self._stream_player.time_pos
-            if time_pos is not None and time_pos > 0:
-                return True
-
-            # Check demuxer cache - how many seconds are buffered
-            # This works even when muted/volume=0
-            # We need at least 0.5 seconds buffered to consider it ready
-            cache_time = self._stream_player.demuxer_cache_time
-            return cache_time is not None and cache_time > 0.5
+            playback_time = self._player.playback_time
+            return playback_time is not None
         except Exception:
             return False
 
     def play_announcement_with_stream_preload(
         self, announcement_file: Path, stream_url: str
     ) -> bool:
-        """Play announcement while preloading stream in background.
+        """Play announcement while preloading stream using playlist prefetching.
 
-        Starts the stream FIRST to begin buffering, then plays announcement
-        while the stream buffers. This ensures maximum buffering time.
+        Uses a single MPV player with a playlist containing the announcement
+        and stream URL. MPV prefetches the stream while playing the announcement,
+        enabling seamless transition.
 
         Args:
             announcement_file: Path to announcement audio file.
-            stream_url: URL of stream to preload.
+            stream_url: URL of stream to play.
 
         Returns:
             True if stream is playing after announcement, False otherwise.
         """
-        # Start the stream (muted) to begin network connection and buffering
-        with self._lock:
-            self._stop_stream_internal()
-
-            # Start stream with mute for prebuffering
-            # Using mute=True instead of volume=0 ensures MPV still decodes/buffers
-            logger.info("Preloading stream (muted): %s", stream_url)
-            self._stream_player = self._create_player(for_stream=True)
-            self._stream_player.mute = True
-            self._stream_player.play(stream_url)
-
-        # Start announcement immediately (stream buffers in parallel)
-        logger.info("Playing announcement: %s", announcement_file.name)
-        announcement_thread = Thread(
-            target=self._play_announcement_internal,
-            args=(announcement_file,),
-            daemon=True,
-        )
-        announcement_thread.start()
-
-        # Wait for announcement to finish
-        # Stream is buffering in the background during this time
-        announcement_thread.join()
-        logger.info("Announcement finished, stream should be buffered")
+        if not announcement_file.exists():
+            logger.error("Announcement file not found: %s", announcement_file)
+            return self.play_stream(stream_url)
 
         with self._lock:
-            # Check if stream player still exists
-            if self._stream_player is None:
-                logger.error("Stream player was terminated during announcement")
+            self._stop_internal()
+            self._stream_started.clear()
+            self._playback_error.clear()
+
+            logger.info(
+                "Starting playlist: [%s] -> [%s]",
+                announcement_file.name,
+                stream_url,
+            )
+
+            try:
+                # Create player with prefetch enabled
+                self._player = self._create_player(prefetch=True)
+
+                # Set up event handlers
+                @self._player.property_observer("playlist-pos")
+                def on_playlist_pos_change(_name: str, value: int | None) -> None:
+                    if value == 1:  # Moved to stream (second playlist item)
+                        logger.info("Transitioned to stream")
+                        self._stream_started.set()
+
+                @self._player.event_callback("end-file")
+                def on_end_file(event: mpv.MpvEvent) -> None:
+                    reason = event.get("reason", "unknown") if event else "unknown"
+                    if reason == "error":
+                        logger.error("Playback error: %s", event)
+                        self._playback_error.set()
+
+                # Start with announcement, append stream to playlist
+                self._player.play(str(announcement_file))
+                self._player.playlist_append(stream_url)
+
+                logger.info("Announcement playing, stream prefetching...")
+
+            except Exception as e:
+                logger.exception("Failed to start playlist playback: %s", e)
+                self._stop_internal()
                 return False
 
-            # Log stream state for diagnostics
-            try:
-                cache_time = self._stream_player.demuxer_cache_time
-                playback_time = self._stream_player.playback_time
-                logger.info(
-                    "Stream state: cache_time=%s, playback_time=%s",
-                    cache_time,
-                    playback_time,
-                )
-            except Exception:
-                logger.warning("Could not read stream state")
+        # Wait for transition to stream (outside lock to allow callbacks)
+        # Typical announcement is 3-5 seconds, add some buffer
+        if self._stream_started.wait(timeout=15.0):
+            # Give stream a moment to start producing audio
+            time.sleep(0.3)
 
-            # Unmute - the stream should have buffered during announcement
-            logger.info("Unmuting stream")
-            self._stream_player.mute = False
+            if self._playback_error.is_set():
+                logger.warning("Stream error during prefetch, retrying normally")
+                return self.play_stream(stream_url)
 
-            # Quick check if stream is already playing
-            if self._is_stream_ready():
-                playback_time = self._stream_player.playback_time
-                logger.info("Stream ready (playback_time: %s)", playback_time)
-                self._is_stream_active = True
-                return True
-
-            # Brief verification - stream may need a moment to start audio output
-            # Keep this short for snappy feel (max 1.5 seconds)
-            for _ in range(5):
-                time.sleep(0.3)
-                if self._is_stream_ready():
-                    playback_time = self._stream_player.playback_time
+            with self._lock:
+                if self._is_player_playing():
                     self._is_stream_active = True
-                    logger.info("Stream connected (playback_time: %s)", playback_time)
+                    logger.info("Stream playing after seamless transition")
                     return True
 
-            logger.warning("Stream did not start during preload, trying normal connect")
-            self._stop_stream_internal()
+            logger.warning("Stream not playing after transition, retrying")
+            return self.play_stream(stream_url)
 
-        # Fall back to normal stream connection with retries
+        logger.warning("Timeout waiting for stream transition, retrying normally")
         return self.play_stream(stream_url)
 
     def play_retrying_announcement(self) -> None:
@@ -342,18 +340,18 @@ class MpvAudioPlayer:
         """Play goodbye announcement when radio is turned off."""
         self.play_announcement(self._goodbye_announcement)
 
-    def _stop_stream_internal(self) -> None:
-        """Stop stream without acquiring lock (internal use)."""
-        if self._stream_player is not None:
+    def _stop_internal(self) -> None:
+        """Stop playback without acquiring lock (internal use)."""
+        if self._player is not None:
             with contextlib.suppress(mpv.ShutdownError, Exception):
-                self._stream_player.terminate()
-            self._stream_player = None
+                self._player.terminate()
+            self._player = None
         self._is_stream_active = False
 
     def stop(self) -> None:
         """Stop all playback."""
         with self._lock:
-            self._stop_stream_internal()
+            self._stop_internal()
 
     def is_playing(self) -> bool:
         """Check if stream is currently playing.
