@@ -12,7 +12,7 @@ from typing import Protocol
 
 import mpv
 
-from models import AudioConfig, ErrorAnnouncementsConfig, RetryConfig
+from .models import AudioConfig, ErrorAnnouncementsConfig, RetryConfig
 
 logger = logging.getLogger(__name__)
 

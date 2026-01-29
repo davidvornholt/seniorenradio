@@ -6,8 +6,8 @@ Implements the state machine for radio behavior.
 import logging
 from threading import Lock
 
-from audio import AudioPlayer
-from models import AppConfig, Channel, RadioState, SwitchPosition
+from .audio import AudioPlayer
+from .models import AppConfig, Channel, RadioState, SwitchPosition
 
 logger = logging.getLogger(__name__)
 

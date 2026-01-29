@@ -9,7 +9,7 @@ from collections.abc import Callable
 from threading import Lock, Thread
 from typing import Protocol
 
-from models import GpioConfig, SwitchPosition
+from .models import GpioConfig, SwitchPosition
 
 logger = logging.getLogger(__name__)
 

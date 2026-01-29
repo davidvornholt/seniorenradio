@@ -9,7 +9,7 @@ from typing import Self
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from models import (
+from .models import (
     AppConfig,
     AudioConfig,
     Channel,

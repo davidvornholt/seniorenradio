@@ -10,10 +10,10 @@ import sys
 from pathlib import Path
 from types import FrameType
 
-from audio import MpvAudioPlayer
-from config import DEFAULT_CONFIG_PATH, load_config
-from controller import RadioController
-from gpio import GpioController, RpiGpioAdapter
+from .audio import MpvAudioPlayer
+from .config import DEFAULT_CONFIG_PATH, load_config
+from .controller import RadioController
+from .gpio import GpioController, RpiGpioAdapter
 
 logger = logging.getLogger(__name__)
 
