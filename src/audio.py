@@ -246,8 +246,8 @@ class MpvAudioPlayer:
     ) -> bool:
         """Play announcement while preloading stream in background.
 
-        Starts the announcement IMMEDIATELY in a parallel thread while
-        setting up the stream. This makes channel changes feel instant.
+        Starts the stream FIRST to begin buffering, then plays announcement
+        while the stream buffers. This ensures maximum buffering time.
 
         Args:
             announcement_file: Path to announcement audio file.
@@ -256,25 +256,25 @@ class MpvAudioPlayer:
         Returns:
             True if stream is playing after announcement, False otherwise.
         """
-        # Start announcement playback immediately in a separate thread
-        # This way the user hears feedback instantly on button press
-        logger.info("Starting announcement in parallel: %s", announcement_file.name)
+        # Start the stream (muted) to begin network connection and buffering
+        with self._lock:
+            self._stop_stream_internal()
+
+            # Start stream with mute for prebuffering
+            # Using mute=True instead of volume=0 ensures MPV still decodes/buffers
+            logger.info("Preloading stream (muted): %s", stream_url)
+            self._stream_player = self._create_player(for_stream=True)
+            self._stream_player.mute = True
+            self._stream_player.play(stream_url)
+
+        # Start announcement immediately (stream buffers in parallel)
+        logger.info("Playing announcement: %s", announcement_file.name)
         announcement_thread = Thread(
             target=self._play_announcement_internal,
             args=(announcement_file,),
             daemon=True,
         )
         announcement_thread.start()
-
-        # While announcement plays, prepare the stream (this runs in parallel)
-        with self._lock:
-            self._stop_stream_internal()
-
-            # Start stream muted for prebuffering
-            logger.info("Preloading stream (muted): %s", stream_url)
-            self._stream_player = self._create_player(for_stream=True)
-            self._stream_player.volume = 0  # Mute during announcement
-            self._stream_player.play(stream_url)
 
         # Wait for announcement to finish
         # Stream is buffering in the background during this time
@@ -299,9 +299,9 @@ class MpvAudioPlayer:
             except Exception:
                 logger.warning("Could not read stream state")
 
-            # Unmute immediately - the stream should have buffered during announcement
+            # Unmute - the stream should have buffered during announcement
             logger.info("Unmuting stream")
-            self._stream_player.volume = self._audio_config.volume
+            self._stream_player.mute = False
 
             # Quick check if stream is already playing
             if self._is_stream_ready():
