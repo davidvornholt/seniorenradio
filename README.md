@@ -37,12 +37,21 @@ All buttons should be wired between GPIO and GND (internal pull-up resistors are
 ### Prerequisites
 
 ```bash
-# Install MPV player
+# Install MPV player and build dependencies
 sudo apt-get update
-sudo apt-get install -y mpv libmpv-dev libmpv2
+sudo apt-get install -y mpv libmpv-dev libmpv2 swig liblgpio-dev
 
 # Install uv (Python package manager)
 curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+> [!NOTE]
+> `swig` is required to build the `lgpio` GPIO library from source on Debian Trixie and newer.
+
+```bash
+# Add your user to the gpio group (required for GPIO access without root)
+sudo usermod -aG gpio $USER
+# Log out and back in for this to take effect
 ```
 
 ### Application Setup

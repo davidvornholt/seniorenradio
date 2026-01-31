@@ -115,13 +115,17 @@ class MpvAudioPlayer:
         Returns:
             Configured MPV player instance.
         """
-        kwargs = {
-            "audio_device": self._audio_config.device,
+        kwargs: dict[str, str | bool | int] = {
             "video": False,
             "terminal": False,
             "input_default_bindings": False,
             "input_vo_keyboard": False,
         }
+
+        # Only set explicit audio device if not "default"
+        # When "default", let mpv auto-detect the best audio output
+        if self._audio_config.device != "default":
+            kwargs["audio_device"] = f"alsa/{self._audio_config.device}"
 
         if prefetch:
             # Enable prefetching and caching for seamless playback
@@ -137,13 +141,18 @@ class MpvAudioPlayer:
 
     def _create_standalone_player(self) -> mpv.MPV:
         """Create a standalone player for simple announcements."""
-        player = mpv.MPV(
-            audio_device=self._audio_config.device,
-            video=False,
-            terminal=False,
-            input_default_bindings=False,
-            input_vo_keyboard=False,
-        )
+        kwargs: dict[str, str | bool] = {
+            "video": False,
+            "terminal": False,
+            "input_default_bindings": False,
+            "input_vo_keyboard": False,
+        }
+
+        # Only set explicit audio device if not "default"
+        if self._audio_config.device != "default":
+            kwargs["audio_device"] = f"alsa/{self._audio_config.device}"
+
+        player = mpv.MPV(**kwargs)
         player.volume = self._audio_config.volume
         return player
 
