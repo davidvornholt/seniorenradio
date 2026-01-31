@@ -6,16 +6,12 @@ Uses playlist prefetching for seamless transition from announcement to stream.
 
 import contextlib
 import logging
-import os
 import time
 from pathlib import Path
 from threading import Event, Lock
 from typing import Protocol
 
-# Suppress PipeWire config warnings (harmless when using ALSA fallback)
-os.environ.setdefault("PIPEWIRE_LOG_LEVEL", "0")
-
-import mpv  # noqa: E402 - must be after env var is set
+import mpv
 
 from .models import AudioConfig, ErrorAnnouncementsConfig, RetryConfig
 

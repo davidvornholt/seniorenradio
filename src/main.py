@@ -3,6 +3,11 @@
 A simple internet radio application for older adults on Raspberry Pi.
 """
 
+# Suppress PipeWire config warnings before any audio libraries are loaded
+import os
+
+os.environ.setdefault("PIPEWIRE_LOG_LEVEL", "0")
+
 import argparse
 import logging
 import signal
@@ -11,7 +16,7 @@ import sys
 from pathlib import Path
 from types import FrameType
 
-from .audio import MpvAudioPlayer
+from .audio import MpvAudioPlayer  # noqa: E402
 from .config import DEFAULT_CONFIG_PATH, load_config
 from .controller import RadioController
 from .gpio import GpioController, RpiGpioAdapter
