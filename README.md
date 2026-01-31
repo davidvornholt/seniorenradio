@@ -39,7 +39,7 @@ All buttons should be wired between GPIO and GND (internal pull-up resistors are
 ```bash
 # Install MPV player
 sudo apt-get update
-sudo apt-get install -y mpv
+sudo apt-get install -y mpv libmpv-dev libmpv2
 
 # Install uv (Python package manager)
 curl -LsSf https://astral.sh/uv/install.sh | sh
