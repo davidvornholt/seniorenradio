@@ -120,10 +120,11 @@ class MpvAudioPlayer:
             "terminal": False,
             "input_default_bindings": False,
             "input_vo_keyboard": False,
+            "ao": "alsa",  # Force ALSA, bypass PipeWire
         }
 
         # Only set explicit audio device if not "default"
-        # When "default", let mpv auto-detect the best audio output
+        # When "default", let mpv auto-detect the best ALSA device
         if self._audio_config.device != "default":
             kwargs["audio_device"] = f"alsa/{self._audio_config.device}"
 
@@ -146,6 +147,7 @@ class MpvAudioPlayer:
             "terminal": False,
             "input_default_bindings": False,
             "input_vo_keyboard": False,
+            "ao": "alsa",  # Force ALSA, bypass PipeWire
         }
 
         # Only set explicit audio device if not "default"
