@@ -89,13 +89,11 @@ uv run python -m src.main --config /path/to/config.yaml
 
 ### Running as a Service
 
-Create a systemd service for automatic startup:
+Create a systemd service for automatic startup. Run these commands from inside the repository directory:
 
 ```bash
-sudo nano /etc/systemd/system/seniorenradio.service
-```
-
-```ini
+# Create the service file (auto-detects user and directory)
+sudo tee /etc/systemd/system/seniorenradio.service > /dev/null <<EOF
 [Unit]
 Description=Seniorenradio Internet Radio
 After=network-online.target sound.target
@@ -103,26 +101,30 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=pi
-WorkingDirectory=/home/pi/seniorenradio
-ExecStart=/home/pi/.local/bin/uv run python -m src.main
+User=$USER
+WorkingDirectory=$(pwd)
+ExecStart=$HOME/.local/bin/uv run python -m src.main
 Restart=always
 RestartSec=10
+Environment="HOME=$HOME"
 
 [Install]
 WantedBy=multi-user.target
-```
+EOF
 
-```bash
 # Enable and start the service
 sudo systemctl daemon-reload
 sudo systemctl enable seniorenradio
 sudo systemctl start seniorenradio
+```
 
+To verify the service is running:
+
+```bash
 # Check status
 sudo systemctl status seniorenradio
 
-# View logs
+# View logs (follow mode)
 journalctl -u seniorenradio -f
 ```
 
