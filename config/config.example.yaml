@@ -17,6 +17,9 @@ gpio:
   switch_pin: 27
   # Software debounce time in milliseconds
   debounce_ms: 200
+  # Invert selector switch behavior (swap ON/OFF positions)
+  # Set to true if your switch wiring causes opposite behavior
+  invert_switch: false
 
 # Stream retry settings
 retry:

@@ -240,7 +240,10 @@ class GpioController:
                 with self._lock:
                     self._last_switch_state = current_state
 
-                position = SwitchPosition.ON if current_state else SwitchPosition.OFF
+                effective_state = (
+                    not current_state if self._config.invert_switch else current_state
+                )
+                position = SwitchPosition.ON if effective_state else SwitchPosition.OFF
                 logger.info("Selector switch changed to %s", position.name)
                 self._on_switch_change(position)
 
@@ -253,7 +256,8 @@ class GpioController:
             Current switch position.
         """
         state = self._gpio.read(self._config.switch_pin)
-        return SwitchPosition.ON if state else SwitchPosition.OFF
+        effective_state = not state if self._config.invert_switch else state
+        return SwitchPosition.ON if effective_state else SwitchPosition.OFF
 
     def stop(self) -> None:
         """Stop GPIO monitoring and clean up."""

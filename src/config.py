@@ -47,6 +47,7 @@ class GpioSchema(BaseModel):
     channel_pins: list[int] = Field(default_factory=lambda: list(DEFAULT_GPIO_PINS))
     switch_pin: int = DEFAULT_SWITCH_PIN
     debounce_ms: int = DEFAULT_DEBOUNCE_MS
+    invert_switch: bool = False
 
 
 class RetrySchema(BaseModel):
@@ -147,6 +148,7 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:
             channel_pins=tuple(schema.gpio.channel_pins),
             switch_pin=schema.gpio.switch_pin,
             debounce_ms=schema.gpio.debounce_ms,
+            invert_switch=schema.gpio.invert_switch,
         ),
         retry=RetryConfig(
             max_attempts=schema.retry.max_attempts,

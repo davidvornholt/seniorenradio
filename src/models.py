@@ -34,6 +34,7 @@ class GpioConfig:
     channel_pins: tuple[int, ...]
     switch_pin: int
     debounce_ms: int
+    invert_switch: bool
 
 
 @dataclass(frozen=True)

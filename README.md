@@ -39,7 +39,7 @@ All buttons should be wired between GPIO and GND (internal pull-up resistors are
 ```bash
 # Install MPV player and build dependencies
 sudo apt-get update
-sudo apt-get install -y mpv libmpv-dev libmpv2 swig liblgpio-dev
+sudo apt-get install -y mpv libmpv-dev libmpv2 swig liblgpio-dev python3-dev
 
 # Install uv (Python package manager)
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -137,6 +137,7 @@ Edit `config/config.yaml` to customize:
 - **Radio channels**: Name, stream URL, announcement file
 - **Retry settings**: Connection attempts and delay
 - **audio_dir**: Path to audio files (relative to config file, or absolute)
+- **invert_switch**: Swap ON/OFF positions of selector switch (useful if wiring causes opposite behavior)
 
 See `config/config.example.yaml` for a complete example.
 
