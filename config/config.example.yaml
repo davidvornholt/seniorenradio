@@ -3,11 +3,22 @@
 
 # Audio output settings
 audio:
-  # Audio device: "default" for 3.5mm jack, or specific device like "hw:1,0" for USB
-  # Use `aplay -l` to list available audio devices
+  # Audio backend: "alsa" or "pipewire"
+  backend: "alsa"
+  # Audio device (ALSA only): "default" for auto-detect, or specific device like "hw:1,0" or "plughw:1,0"
+  # Ignored when backend is "pipewire". Use `aplay -l` to list available ALSA devices
   device: "default"
   # Volume level (0-100)
   volume: 80
+  # Stream buffering options (for stability on unreliable networks)
+  buffer:
+    enabled: true
+    # Cache seconds kept in memory
+    cache_seconds: 8
+    # Maximum demuxer buffer size
+    demuxer_max_bytes: "32MiB"
+    # Network timeout in seconds
+    network_timeout_seconds: 10
 
 # GPIO pin configuration (BCM numbering)
 gpio:
@@ -28,6 +39,49 @@ retry:
   # Delay between retry attempts in seconds
   delay_seconds: 5
 
+# Stream watchdog settings (detect dropouts and reconnect)
+watchdog:
+  enabled: true
+  # How often to check stream health
+  check_interval_seconds: 2
+  # Treat stream as stalled if playback time does not progress
+  stall_seconds: 8
+  # Delay before trying another reconnect attempt
+  reconnect_delay_seconds: 2
+  # Light internet check before reconnecting
+  internet_check_enabled: true
+  # Hosts to probe for internet connectivity
+  internet_check_hosts: ["1.1.1.1", "8.8.8.8"]
+  internet_check_port: 53
+  internet_check_timeout_seconds: 2
+
+# WiFi management (NetworkManager)
+wifi:
+  nmcli_path: "nmcli"
+  command_timeout_seconds: 5
+  connect_timeout_seconds: 20
+
+# Text-to-speech for debug readouts
+tts:
+  enabled: true
+  # TTS engine binary
+  engine: "espeak-ng"
+  # Voice (null = default)
+  voice: null
+  # Speech rate (words per minute for espeak-ng)
+  rate: 160
+  # Volume (0-200 for espeak-ng)
+  volume: 100
+
+# Debug readout behavior (triggered via long-press on Channel 2)
+debug:
+  enabled: false
+  long_press_seconds: 4
+  selection_timeout_seconds: 12
+  max_networks: 5
+  # Stop stream audio while speaking diagnostics
+  interrupt_audio: true
+
 # Directory containing announcement audio files (relative to this config file)
 audio_dir: "../audio"
 
@@ -40,6 +94,13 @@ error_announcements:
   failed: "error_failed.mp3"
   # Played when there is no internet connection
   no_internet: "error_no_internet.mp3"
+
+# Boot connectivity announcements (relative to audio_dir)
+boot_announcements:
+  # Played when internet is available
+  connected: "boot_connected.mp3"
+  # Played when internet is not available
+  no_internet: "boot_no_internet.mp3"
 
 # Radio channels (up to 5)
 # Each channel needs:

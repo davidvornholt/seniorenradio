@@ -41,8 +41,20 @@ class GpioConfig:
 class AudioConfig:
     """Audio output configuration."""
 
+    backend: str
     device: str
     volume: int
+    buffer: StreamBufferConfig
+
+
+@dataclass(frozen=True)
+class StreamBufferConfig:
+    """Streaming buffer configuration for MPV."""
+
+    enabled: bool
+    cache_seconds: float
+    demuxer_max_bytes: str
+    network_timeout_seconds: float
 
 
 @dataclass(frozen=True)
@@ -51,6 +63,59 @@ class RetryConfig:
 
     max_attempts: int
     delay_seconds: float
+
+
+@dataclass(frozen=True)
+class StreamWatchdogConfig:
+    """Watchdog configuration for stream dropouts."""
+
+    enabled: bool
+    check_interval_seconds: float
+    stall_seconds: float
+    reconnect_delay_seconds: float
+    internet_check_enabled: bool
+    internet_check_hosts: tuple[str, ...]
+    internet_check_port: int
+    internet_check_timeout_seconds: float
+
+
+@dataclass(frozen=True)
+class WifiConfig:
+    """WiFi management configuration."""
+
+    nmcli_path: str
+    command_timeout_seconds: float
+    connect_timeout_seconds: float
+
+
+@dataclass(frozen=True)
+class TtsConfig:
+    """Text-to-speech configuration."""
+
+    enabled: bool
+    engine: str
+    voice: str | None
+    rate: int
+    volume: int
+
+
+@dataclass(frozen=True)
+class DebugConfig:
+    """Debug readout configuration."""
+
+    enabled: bool
+    long_press_seconds: float
+    selection_timeout_seconds: float
+    max_networks: int
+    interrupt_audio: bool
+
+
+@dataclass(frozen=True)
+class BootAnnouncementsConfig:
+    """Boot announcement audio files."""
+
+    connected: Path
+    no_internet: Path
 
 
 @dataclass(frozen=True)
@@ -69,10 +134,15 @@ class AppConfig:
     audio: AudioConfig
     gpio: GpioConfig
     retry: RetryConfig
+    watchdog: StreamWatchdogConfig
+    wifi: WifiConfig
+    tts: TtsConfig
+    debug: DebugConfig
     channels: tuple[Channel, ...]
     default_channel_index: int
     audio_dir: Path
     error_announcements: ErrorAnnouncementsConfig
+    boot_announcements: BootAnnouncementsConfig
     goodbye_announcement: Path
     selector_off_announcement: Path
     shutdown_announcement: Path

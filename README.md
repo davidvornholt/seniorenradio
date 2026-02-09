@@ -85,7 +85,16 @@ uv run python -m src.main --verbose
 
 # Or with custom config path
 uv run python -m src.main --config /path/to/config.yaml
+
+# Run with keyboard-based GPIO mock (no Raspberry Pi required)
+uv run python -m src.main --gpio mock
 ```
+
+GPIO mock controls:
+
+- Keys `1`-`5`: Channel buttons 1-5
+- Key `s`: Toggle selector switch ON/OFF
+- Hold key `1`: Trigger shutdown request (mock mode logs only, no system shutdown)
 
 ### Running as a Service
 
@@ -132,10 +141,13 @@ journalctl -u seniorenradio -f
 
 Edit `config/config.yaml` to customize:
 
-- **Audio device**: 3.5mm jack (`default`) or USB audio (`hw:1,0`)
+- **Audio backend**: `alsa` or `pipewire`
+- **Audio device**: 3.5mm jack (`default`) or USB audio (`hw:1,0` / `plughw:1,0`)
 - **Volume level**: 0-100
 - **Radio channels**: Name, stream URL, announcement file
 - **Retry settings**: Connection attempts and delay
+- **Buffer settings**: Cache seconds and max buffer size; increase for high-latency or bursty networks, decrease for memory-constrained devices.
+- **Watchdog settings**: Stream health checks and reconnect timing; tighten for unreliable networks and relax for stable, low-latency connections.
 - **audio_dir**: Path to audio files (relative to config file, or absolute)
 - **invert_switch**: Swap ON/OFF positions of selector switch (useful if wiring causes opposite behavior)
 

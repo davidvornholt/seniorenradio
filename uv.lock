@@ -192,7 +192,7 @@ dependencies = [
     { name = "pydantic" },
     { name = "python-mpv" },
     { name = "pyyaml" },
-    { name = "rpi-lgpio" },
+    { name = "rpi-lgpio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'armv7l' and sys_platform == 'linux')" },
 ]
 
 [package.dev-dependencies]
@@ -206,7 +206,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0" },
     { name = "python-mpv", specifier = ">=1.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rpi-lgpio", specifier = ">=0.6" },
+    { name = "rpi-lgpio", marker = "(platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'armv7l' and sys_platform == 'linux')", specifier = ">=0.6" },
 ]
 
 [package.metadata.requires-dev]

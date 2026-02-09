@@ -3,8 +3,9 @@
 Loads and validates YAML configuration files using Pydantic.
 """
 
+import re
 from pathlib import Path
-from typing import Self
+from typing import Literal, Self
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -12,10 +13,16 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from .models import (
     AppConfig,
     AudioConfig,
+    BootAnnouncementsConfig,
     Channel,
+    DebugConfig,
     ErrorAnnouncementsConfig,
     GpioConfig,
     RetryConfig,
+    StreamBufferConfig,
+    StreamWatchdogConfig,
+    TtsConfig,
+    WifiConfig,
 )
 
 DEFAULT_CONFIG_PATH = Path("config/config.yaml")
@@ -34,11 +41,35 @@ class ChannelSchema(BaseModel):
     announcement_file: str
 
 
+class BufferSchema(BaseModel):
+    """Schema for stream buffer configuration."""
+
+    enabled: bool = True
+    cache_seconds: float = Field(default=8.0, ge=1.0)
+    demuxer_max_bytes: str = "32MiB"
+    network_timeout_seconds: float = Field(default=10.0, ge=1.0)
+
+    @field_validator("demuxer_max_bytes")
+    @classmethod
+    def validate_demuxer_max_bytes(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not re.fullmatch(
+            r"\d+(B|KB|KiB|MB|MiB|GB|GiB)",
+            cleaned,
+            re.IGNORECASE,
+        ):
+            msg = "demuxer_max_bytes must be like '32MiB' or '64KB'"
+            raise ValueError(msg)
+        return cleaned
+
+
 class AudioSchema(BaseModel):
     """Schema for audio configuration."""
 
+    backend: str = Field(default="alsa", pattern="^(alsa|pipewire)$")
     device: str = "default"
     volume: int = Field(default=80, ge=0, le=100)
+    buffer: BufferSchema = Field(default_factory=BufferSchema)
 
 
 class GpioSchema(BaseModel):
@@ -57,6 +88,65 @@ class RetrySchema(BaseModel):
     delay_seconds: float = Field(default=5.0, ge=0.5)
 
 
+class WatchdogSchema(BaseModel):
+    """Schema for stream watchdog configuration."""
+
+    enabled: bool = True
+    check_interval_seconds: float = Field(default=2.0, ge=0.5)
+    stall_seconds: float = Field(default=8.0, ge=2.0)
+    reconnect_delay_seconds: float = Field(default=2.0, ge=0.5)
+    internet_check_enabled: bool = True
+    internet_check_hosts: list[str] = Field(
+        default_factory=lambda: ["1.1.1.1", "8.8.8.8"]
+    )
+    internet_check_port: int = Field(default=53, ge=1, le=65535)
+    internet_check_timeout_seconds: float = Field(default=2.0, ge=0.5)
+
+
+class WifiSchema(BaseModel):
+    """Schema for WiFi management configuration."""
+
+    nmcli_path: str = "nmcli"
+    command_timeout_seconds: float = Field(default=5.0, ge=1.0)
+    connect_timeout_seconds: float = Field(default=20.0, ge=5.0)
+
+
+class TtsSchema(BaseModel):
+    """Schema for text-to-speech configuration."""
+
+    enabled: bool = True
+    engine: Literal["espeak-ng", "pico2wave"] = "espeak-ng"
+    voice: str | None = None
+    rate: int = Field(default=160, ge=80, le=300)
+    # Volume (0-200 for espeak-ng; keep within range for other engines too).
+    volume: int = Field(default=100, ge=0, le=200)
+
+    @field_validator("volume")
+    @classmethod
+    def validate_volume(cls, v: int) -> int:
+        if v < 0 or v > 200:
+            msg = "tts.volume must be between 0 and 200"
+            raise ValueError(msg)
+        return v
+
+
+class DebugSchema(BaseModel):
+    """Schema for debug readout configuration."""
+
+    enabled: bool = True
+    long_press_seconds: float = Field(default=4.0, ge=1.0)
+    selection_timeout_seconds: float = Field(default=12.0, ge=3.0)
+    max_networks: int = Field(default=5, ge=1, le=10)
+    interrupt_audio: bool = True
+
+
+class BootAnnouncementsSchema(BaseModel):
+    """Schema for boot announcement audio files."""
+
+    connected: str = "boot_connected.mp3"
+    no_internet: str = "boot_no_internet.mp3"
+
+
 class ErrorAnnouncementsSchema(BaseModel):
     """Schema for error announcement files."""
 
@@ -71,11 +161,18 @@ class ConfigSchema(BaseModel):
     audio: AudioSchema = Field(default_factory=AudioSchema)
     gpio: GpioSchema = Field(default_factory=GpioSchema)
     retry: RetrySchema = Field(default_factory=RetrySchema)
+    watchdog: WatchdogSchema = Field(default_factory=WatchdogSchema)
+    wifi: WifiSchema = Field(default_factory=WifiSchema)
+    tts: TtsSchema = Field(default_factory=TtsSchema)
+    debug: DebugSchema = Field(default_factory=DebugSchema)
     channels: list[ChannelSchema] = Field(min_length=1, max_length=5)
     default_channel: int = Field(default=0, ge=0)
     audio_dir: str = DEFAULT_AUDIO_DIR
     error_announcements: ErrorAnnouncementsSchema = Field(
         default_factory=ErrorAnnouncementsSchema
+    )
+    boot_announcements: BootAnnouncementsSchema = Field(
+        default_factory=BootAnnouncementsSchema
     )
     goodbye_announcement: str = "goodbye.mp3"
     selector_off_announcement: str = "selector_off.mp3"
@@ -141,8 +238,15 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:
 
     return AppConfig(
         audio=AudioConfig(
+            backend=schema.audio.backend,
             device=schema.audio.device,
             volume=schema.audio.volume,
+            buffer=StreamBufferConfig(
+                enabled=schema.audio.buffer.enabled,
+                cache_seconds=schema.audio.buffer.cache_seconds,
+                demuxer_max_bytes=schema.audio.buffer.demuxer_max_bytes,
+                network_timeout_seconds=schema.audio.buffer.network_timeout_seconds,
+            ),
         ),
         gpio=GpioConfig(
             channel_pins=tuple(schema.gpio.channel_pins),
@@ -154,6 +258,35 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:
             max_attempts=schema.retry.max_attempts,
             delay_seconds=schema.retry.delay_seconds,
         ),
+        watchdog=StreamWatchdogConfig(
+            enabled=schema.watchdog.enabled,
+            check_interval_seconds=schema.watchdog.check_interval_seconds,
+            stall_seconds=schema.watchdog.stall_seconds,
+            reconnect_delay_seconds=schema.watchdog.reconnect_delay_seconds,
+            internet_check_enabled=schema.watchdog.internet_check_enabled,
+            internet_check_hosts=tuple(schema.watchdog.internet_check_hosts),
+            internet_check_port=schema.watchdog.internet_check_port,
+            internet_check_timeout_seconds=schema.watchdog.internet_check_timeout_seconds,
+        ),
+        wifi=WifiConfig(
+            nmcli_path=schema.wifi.nmcli_path,
+            command_timeout_seconds=schema.wifi.command_timeout_seconds,
+            connect_timeout_seconds=schema.wifi.connect_timeout_seconds,
+        ),
+        tts=TtsConfig(
+            enabled=schema.tts.enabled,
+            engine=schema.tts.engine,
+            voice=schema.tts.voice,
+            rate=schema.tts.rate,
+            volume=schema.tts.volume,
+        ),
+        debug=DebugConfig(
+            enabled=schema.debug.enabled,
+            long_press_seconds=schema.debug.long_press_seconds,
+            selection_timeout_seconds=schema.debug.selection_timeout_seconds,
+            max_networks=schema.debug.max_networks,
+            interrupt_audio=schema.debug.interrupt_audio,
+        ),
         channels=channels,
         default_channel_index=schema.default_channel,
         audio_dir=audio_dir,
@@ -161,6 +294,10 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:
             retrying=audio_dir / schema.error_announcements.retrying,
             failed=audio_dir / schema.error_announcements.failed,
             no_internet=audio_dir / schema.error_announcements.no_internet,
+        ),
+        boot_announcements=BootAnnouncementsConfig(
+            connected=audio_dir / schema.boot_announcements.connected,
+            no_internet=audio_dir / schema.boot_announcements.no_internet,
         ),
         goodbye_announcement=audio_dir / schema.goodbye_announcement,
         selector_off_announcement=audio_dir / schema.selector_off_announcement,
