@@ -4,7 +4,7 @@
 # Audio output settings
 audio:
   # Audio backend: "alsa" or "pipewire"
-  backend: "alsa"
+  backend: "pipewire"
   # Audio device (ALSA only): "default" for auto-detect, or specific device like "hw:1,0" or "plughw:1,0"
   # Ignored when backend is "pipewire". Use `aplay -l` to list available ALSA devices
   device: "default"
@@ -37,7 +37,7 @@ retry:
   # Number of connection attempts before giving up
   max_attempts: 3
   # Delay between retry attempts in seconds
-  delay_seconds: 5
+  delay_seconds: 7
 
 # Stream watchdog settings (detect dropouts and reconnect)
 watchdog:
@@ -69,7 +69,7 @@ tts:
   # Voice (null = default)
   voice: null
   # Speech rate (words per minute for espeak-ng)
-  rate: 160
+  rate: 120
   # Volume (0-200 for espeak-ng)
   volume: 100
 
@@ -108,24 +108,24 @@ boot_announcements:
 #   - stream_url: URL of the MP3/AAC stream
 #   - announcement_file: Filename of the audio announcement (relative to audio_dir)
 channels:
-  - name: "SWR3"
-    stream_url: "https://liveradio.swr.de/sw282p3/swr3/play.mp3"
+  - name: "SWR1 Baden-Württemberg"
+    stream_url: "https://liveradio.swr.de/sw282p3/swr1bw/"
     announcement_file: "channel_1.mp3"
 
-  - name: "SWR1 Baden-Württemberg"
-    stream_url: "https://liveradio.swr.de/sw282p3/swr1bw/play.mp3"
+  - name: "SWR2"
+    stream_url: "https://liveradio.swr.de/sw282p3/swr2/"
     announcement_file: "channel_2.mp3"
 
-  - name: "SWR4 Baden-Württemberg"
-    stream_url: "https://liveradio.swr.de/sw282p3/swr4bw/play.mp3"
+  - name: "SWR3"
+    stream_url: "https://liveradio.swr.de/sw282p3/swr3/"
     announcement_file: "channel_3.mp3"
 
-  - name: "Deutschlandfunk"
-    stream_url: "https://st01.dlf.de/dlf/01/128/mp3/stream.mp3"
+  - name: "SWR4 Baden-Württemberg"
+    stream_url: "https://liveradio.swr.de/sw282p3/swr4bw/"
     announcement_file: "channel_4.mp3"
 
-  - name: "Bayern 1"
-    stream_url: "https://streams.br.de/bayern1_2.m3u"
+  - name: "SWR Aktuell"
+    stream_url: "https://liveradio.swr.de/sw282p3/swraktuell/"
     announcement_file: "channel_5.mp3"
 
 # Default channel to play on startup (0-based index)
