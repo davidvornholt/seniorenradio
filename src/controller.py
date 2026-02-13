@@ -96,21 +96,23 @@ class RadioController:
         """
         with self._lock:
             self._state = self._state.with_switch(initial_switch_position)
+            selected_channel_index = self._state.selected_channel_index
 
         self._announce_boot_connectivity()
 
-        with self._lock:
-            match initial_switch_position:
-                case SwitchPosition.ON:
-                    channel = self._get_channel(self._state.selected_channel_index)
-                    if channel is not None:
-                        logger.info("Startup with switch ON, playing default channel")
-                        success = self._announce_and_play_channel(channel)
-                        self._state = self._state.with_stream_active(success)
+        match initial_switch_position:
+            case SwitchPosition.ON:
+                channel = self._get_channel(selected_channel_index)
+                if channel is not None:
+                    logger.info("Startup with switch ON, playing default channel")
+                    success = self._announce_and_play_channel(channel)
+                    with self._lock:
+                        if self._state.switch_position == SwitchPosition.ON:
+                            self._state = self._state.with_stream_active(success)
 
-                case SwitchPosition.OFF:
-                    logger.info("Startup with switch OFF, playing info announcement")
-                    self._audio.play_selector_off_announcement()
+            case SwitchPosition.OFF:
+                logger.info("Startup with switch OFF, playing info announcement")
+                self._audio.play_selector_off_announcement()
 
     def handle_channel_button(self, channel_index: int) -> None:
         """Handle channel button press.
@@ -143,15 +145,17 @@ class RadioController:
                 logger.warning("Invalid channel index: %d", channel_index)
                 return
 
-            # Stop current stream
-            self._audio.stop()
-
-            # Update selected channel
+            # Update selected channel before starting playback
             self._state = self._state.with_channel(channel_index)
 
-            # Announce and play new channel
-            success = self._announce_and_play_channel(channel)
-            self._state = self._state.with_stream_active(success)
+        self._audio.stop()
+        success = self._announce_and_play_channel(channel)
+        with self._lock:
+            if (
+                self._state.switch_position == SwitchPosition.ON
+                and self._state.selected_channel_index == channel_index
+            ):
+                self._state = self._state.with_stream_active(success)
 
     def handle_switch_change(self, position: SwitchPosition) -> None:
         """Handle selector switch position change.
@@ -162,34 +166,38 @@ class RadioController:
         with self._lock:
             previous_position = self._state.switch_position
             self._state = self._state.with_switch(position)
+            selected_channel_index = self._state.selected_channel_index
 
-            # Ignore if position hasn't actually changed
-            if position == previous_position:
-                return
+        # Ignore if position hasn't actually changed
+        if position == previous_position:
+            return
 
-            match position:
-                case SwitchPosition.ON:
-                    channel = self._get_channel(self._state.selected_channel_index)
-                    if channel is not None:
-                        logger.info("Switch turned ON, starting playback")
-                        success = self._announce_and_play_channel(channel)
-                        self._state = self._state.with_stream_active(success)
+        match position:
+            case SwitchPosition.ON:
+                channel = self._get_channel(selected_channel_index)
+                if channel is not None:
+                    logger.info("Switch turned ON, starting playback")
+                    success = self._announce_and_play_channel(channel)
+                    with self._lock:
+                        if self._state.switch_position == SwitchPosition.ON:
+                            self._state = self._state.with_stream_active(success)
 
-                case SwitchPosition.OFF:
-                    logger.info("Switch turned OFF, stopping playback")
-                    self._audio.stop()
-                    self._audio.play_goodbye_announcement()
-                    self._state = self._state.with_stream_active(False)
+            case SwitchPosition.OFF:
+                logger.info("Switch turned OFF, stopping playback")
+                self._audio.stop()
+                self._audio.play_goodbye_announcement()
+                with self._lock:
+                    if self._state.switch_position == SwitchPosition.OFF:
+                        self._state = self._state.with_stream_active(False)
 
     def handle_shutdown_request(self) -> None:
         """Handle shutdown request from long-press on channel 1 button.
 
         Stops current playback and plays shutdown announcement.
         """
-        with self._lock:
-            logger.info("Shutdown requested via long-press")
-            self._audio.stop()
-            self._audio.play_shutdown_announcement()
+        logger.info("Shutdown requested via long-press")
+        self._audio.stop()
+        self._audio.play_shutdown_announcement()
 
     def handle_debug_request(self) -> None:
         """Handle debug request from long-press on channel 2 button."""
@@ -200,8 +208,9 @@ class RadioController:
             was_playing = self._state.is_stream_active
             channel = self._get_channel(self._state.selected_channel_index)
 
-            if self._config.debug.interrupt_audio and was_playing:
-                self._audio.stop()
+        if self._config.debug.interrupt_audio and was_playing:
+            self._audio.stop()
+            with self._lock:
                 self._state = self._state.with_stream_active(False)
 
         lines = self._build_debug_lines()

@@ -214,7 +214,6 @@ def main() -> int:
         nonlocal shutdown_requested
         if not shutdown_requested:
             shutdown_requested = True
-            logger.info("Shutdown signal received (%s)", signal.Signals(signum).name)
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
