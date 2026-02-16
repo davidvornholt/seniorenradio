@@ -205,12 +205,10 @@ class RadioController:
         if position == previous_position:
             return
 
-            channel_index = self._state.selected_channel_index
-
         # Dispatch audio operations outside lock
         match position:
             case SwitchPosition.ON:
-                channel = self._get_channel(channel_index)
+                channel = self._get_channel(selected_channel_index)
                 if channel is not None:
                     logger.info("Switch turned ON, starting playback")
                     self._dispatch(partial(self._play_channel_task, channel))

@@ -188,7 +188,7 @@ class MpvAudioPlayer:
     def _wait_for_announcement_end(
         self,
         player: mpv.MPV,
-        timeout_seconds: float = ANNOUNCEMENT_TIMEOUT_SECONDS,
+        timeout_seconds: float = MAX_ANNOUNCEMENT_SECONDS,
     ) -> bool:
         """Wait for local announcement playback to complete.
 
