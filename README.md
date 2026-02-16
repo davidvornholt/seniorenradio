@@ -58,7 +58,7 @@ sudo usermod -aG gpio $USER
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/seniorenradio.git
+git clone https://github.com/davidvornholt/seniorenradio.git
 cd seniorenradio
 
 # Install dependencies
