@@ -104,7 +104,14 @@ GPIO mock controls:
 
 ### Running as a Service
 
-Create a systemd service for automatic startup. Run these commands from inside the repository directory:
+Choose the service type based on your audio backend:
+
+- **ALSA** → system service (simpler setup)
+- **PipeWire** → user service (required because PipeWire runs per-user)
+
+#### Option A: System Service (ALSA)
+
+Run these commands from inside the repository directory:
 
 ```bash
 # Create the service file (auto-detects user and directory)
@@ -133,14 +140,57 @@ sudo systemctl enable seniorenradio
 sudo systemctl start seniorenradio
 ```
 
-To verify the service is running:
-
 ```bash
 # Check status
 sudo systemctl status seniorenradio
 
 # View logs (follow mode)
 journalctl -u seniorenradio -f
+```
+
+#### Option B: User Service (PipeWire)
+
+PipeWire runs as a per-user session daemon. A system service cannot access the user's PipeWire socket, so you **must** use a `systemd --user` service instead.
+
+```bash
+# Enable lingering so your user session starts at boot (headless)
+sudo loginctl enable-linger $USER
+
+# Create the user service directory
+mkdir -p ~/.config/systemd/user
+```
+
+```bash
+# Create the user service file (run from inside the repository directory)
+tee ~/.config/systemd/user/seniorenradio.service > /dev/null <<EOF
+[Unit]
+Description=Seniorenradio Internet Radio
+After=network.target pipewire.service wireplumber.service
+Wants=pipewire.service wireplumber.service
+
+[Service]
+Type=simple
+WorkingDirectory=$(pwd)
+ExecStart=$(pwd)/.venv/bin/python -m src.main --log-file $(pwd)/seniorenradio.log --heartbeat-file /tmp/seniorenradio-heartbeat
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+EOF
+
+# Enable and start the service
+systemctl --user daemon-reload
+systemctl --user enable seniorenradio
+systemctl --user start seniorenradio
+```
+
+```bash
+# Check status
+systemctl --user status seniorenradio
+
+# View logs (follow mode)
+journalctl --user -u seniorenradio -f
 ```
 
 ## Configuration
