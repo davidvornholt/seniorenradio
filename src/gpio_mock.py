@@ -10,11 +10,10 @@ import threading
 import time
 import tty
 from collections.abc import Callable
-from typing import TypeAlias
 
 logger = logging.getLogger(__name__)
 
-TermiosSettings: TypeAlias = list[int | list[int | bytes]]
+type TermiosSettings = list[int | list[int | bytes]]
 
 
 class KeyboardGpioAdapter:

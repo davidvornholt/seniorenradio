@@ -39,7 +39,7 @@ All buttons should be wired between GPIO and GND (internal pull-up resistors are
 ```bash
 # Install MPV player and build dependencies
 sudo apt-get update
-sudo apt-get install -y mpv libmpv-dev libmpv2 swig liblgpio-dev python3-dev
+sudo apt-get install -y git mpv libmpv-dev libmpv2 swig liblgpio-dev python3-dev build-essential
 
 # Install uv (Python package manager)
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -58,7 +58,7 @@ sudo usermod -aG gpio $USER
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/seniorenradio.git
+git clone https://github.com/davidvornholt/seniorenradio.git
 cd seniorenradio
 
 # Install dependencies
@@ -88,6 +88,12 @@ uv run python -m src.main --config /path/to/config.yaml
 
 # Run with keyboard-based GPIO mock (no Raspberry Pi required)
 uv run python -m src.main --gpio mock
+
+# Enable rotating log file (5 MB × 3 backups)
+uv run python -m src.main --log-file /var/log/seniorenradio.log
+
+# Enable heartbeat file for external monitoring (updated every 30s)
+uv run python -m src.main --heartbeat-file /tmp/seniorenradio-heartbeat
 ```
 
 GPIO mock controls:
