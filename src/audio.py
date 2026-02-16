@@ -23,6 +23,9 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
+MAX_ANNOUNCEMENT_SECONDS = 15.0
+MAX_RECONNECT_BACKOFF_SECONDS = 60.0
+
 
 class AudioPlayer(Protocol):
     """Protocol for audio playback."""
@@ -117,7 +120,9 @@ class MpvAudioPlayer:
         self._playback_error_reason: str | None = None
         self._current_stream_url: str | None = None
         self._desired_stream_url: str | None = None
+        self._cancel = Event()
         self._last_reconnect_attempt = 0.0
+        self._reconnect_backoff_seconds = self._watchdog_config.reconnect_delay_seconds
         self._watchdog_stop = Event()
         self._watchdog_thread: Thread | None = None
 
@@ -248,10 +253,13 @@ class MpvAudioPlayer:
                     now = time.monotonic()
                     if (
                         now - self._last_reconnect_attempt
-                        >= self._watchdog_config.reconnect_delay_seconds
+                        >= self._reconnect_backoff_seconds
                     ):
                         self._last_reconnect_attempt = now
-                        logger.info("Stream inactive, attempting reconnect")
+                        logger.info(
+                            "Stream inactive, attempting reconnect (backoff=%.1fs)",
+                            self._reconnect_backoff_seconds,
+                        )
                         self._handle_stream_stall(desired_url)
                 continue
 
@@ -292,13 +300,26 @@ class MpvAudioPlayer:
         if not self._has_internet():
             logger.warning("No internet connection detected")
             self.play_no_internet_announcement()
-            self._watchdog_stop.wait(self._watchdog_config.reconnect_delay_seconds)
+            self._watchdog_stop.wait(self._reconnect_backoff_seconds)
+            self._increase_backoff()
             return
 
         self.play_retrying_announcement()
         success = self._play_stream(stream_url, announce_retry=False)
-        if not success:
+        if success:
+            self._reset_backoff()
+        else:
             self.play_failed_announcement()
+            self._increase_backoff()
+
+    def _increase_backoff(self) -> None:
+        self._reconnect_backoff_seconds = min(
+            self._reconnect_backoff_seconds * 2,
+            MAX_RECONNECT_BACKOFF_SECONDS,
+        )
+
+    def _reset_backoff(self) -> None:
+        self._reconnect_backoff_seconds = self._watchdog_config.reconnect_delay_seconds
 
     def _stop_stream_for_reconnect(self) -> None:
         """Stop current stream without clearing desired stream state."""
@@ -311,7 +332,7 @@ class MpvAudioPlayer:
             self._current_stream_url = None
 
     def play_announcement(self, file: Path) -> bool:
-        """Play a local audio file synchronously.
+        """Play a local audio file synchronously with timeout.
 
         Args:
             file: Path to the audio file.
@@ -323,11 +344,10 @@ class MpvAudioPlayer:
             logger.error("Announcement file not found: %s", file)
             return False
 
-        with self._lock:
-            return self._play_announcement_internal(file)
+        return self._play_announcement_internal(file)
 
     def _play_announcement_internal(self, file: Path) -> bool:
-        """Play announcement without acquiring lock (for internal use).
+        """Play announcement with Event-based timeout.
 
         Args:
             file: Path to the audio file.
@@ -339,15 +359,33 @@ class MpvAudioPlayer:
             logger.error("Announcement file not found: %s", file)
             return False
 
+        player: mpv.MPV | None = None
         try:
             player = self._create_standalone_player()
+            done = Event()
+
+            @player.event_callback("end-file")
+            def on_end_file(_event: mpv.MpvEvent) -> None:
+                done.set()
+
             player.play(str(file))
-            player.wait_for_playback()
-            player.terminate()
+
+            if not done.wait(timeout=MAX_ANNOUNCEMENT_SECONDS):
+                logger.warning(
+                    "Announcement timed out after %.0fs: %s",
+                    MAX_ANNOUNCEMENT_SECONDS,
+                    file.name,
+                )
+                return False
+
             return True
         except Exception as e:
             logger.exception("Failed to play announcement: %s", e)
             return False
+        finally:
+            if player is not None:
+                with contextlib.suppress(mpv.ShutdownError, Exception):
+                    player.terminate()
 
     def play_stream(self, url: str) -> bool:
         """Start playing an internet stream with retry logic.
@@ -364,14 +402,20 @@ class MpvAudioPlayer:
         return self._play_stream_locked(url, announce_retry=announce_retry)
 
     def _play_stream_locked(self, url: str, announce_retry: bool) -> bool:
-        """Start playing a stream with minimal lock contention."""
+        """Start playing a stream with cancellation support."""
         with self._lock:
-            self._stop_internal()
+            self._stop_internal(clear_desired=False)
             self._desired_stream_url = url
             self._playback_error.clear()
             self._playback_error_reason = None
 
+        self._cancel.clear()
+
         for attempt in range(1, self._retry_config.max_attempts + 1):
+            if self._cancel.is_set():
+                logger.info("Stream connection cancelled")
+                return False
+
             logger.info(
                 "Attempting to connect to stream (attempt %d/%d): %s",
                 attempt,
@@ -387,6 +431,11 @@ class MpvAudioPlayer:
 
                 # Wait for stream to start
                 for _ in range(50):
+                    if self._cancel.is_set():
+                        with self._lock:
+                            self._stop_internal(clear_desired=False)
+                        return False
+
                     time.sleep(0.1)
                     with self._lock:
                         current_player = self._player
@@ -399,6 +448,7 @@ class MpvAudioPlayer:
                                 break
                             self._is_stream_active = True
                             self._current_stream_url = url
+                            self._reset_backoff()
                             self._start_watchdog()
                         logger.info(
                             "Stream connected successfully (playback_time: %s)",
@@ -408,23 +458,26 @@ class MpvAudioPlayer:
 
                 logger.warning("Stream failed to start on attempt %d", attempt)
                 with self._lock:
-                    self._stop_internal()
+                    self._stop_internal(clear_desired=False)
 
             except Exception as e:
                 logger.exception("MPV error on attempt %d: %s", attempt, e)
                 with self._lock:
-                    self._stop_internal()
+                    self._stop_internal(clear_desired=False)
 
             # Play retry announcement if we will retry
             if attempt < self._retry_config.max_attempts and announce_retry:
                 logger.info("Playing retry announcement before next attempt")
                 self._play_announcement_internal(self._error_announcements.retrying)
-                time.sleep(self._retry_config.delay_seconds)
+                if self._cancel.wait(self._retry_config.delay_seconds):
+                    logger.info("Retry delay cancelled")
+                    return False
 
         logger.error(
             "Failed to connect to stream after %d attempts",
             self._retry_config.max_attempts,
         )
+        # Keep _desired_stream_url so watchdog can continue retrying
         with self._lock:
             self._current_stream_url = None
         return False
@@ -458,7 +511,8 @@ class MpvAudioPlayer:
 
         Uses a single MPV player with a playlist containing the announcement
         and stream URL. MPV prefetches the stream while playing the announcement,
-        enabling seamless transition.
+        enabling seamless transition. Includes timeout protection for corrupt
+        announcement files.
 
         Args:
             announcement_file: Path to announcement audio file.
@@ -472,54 +526,68 @@ class MpvAudioPlayer:
             return self.play_stream(stream_url)
 
         with self._lock:
-            self._stop_internal()
+            self._stop_internal(clear_desired=False)
             self._stream_started.clear()
             self._playback_error.clear()
             self._desired_stream_url = stream_url
 
+        self._cancel.clear()
+        player: mpv.MPV | None = None
+
+        try:
             logger.info(
                 "Starting playlist: [%s] -> [%s]",
                 announcement_file.name,
                 stream_url,
             )
 
-            try:
-                # Create player with prefetch enabled
-                self._player = self._create_player(prefetch=True)
+            # Create player with prefetch enabled
+            player = self._create_player(prefetch=True)
 
-                # Set up event handlers
-                @self._player.property_observer("playlist-pos")
-                def on_playlist_pos_change(_name: str, value: int | None) -> None:
-                    if value == 1:  # Moved to stream (second playlist item)
-                        logger.info("Transitioned to stream")
-                        self._stream_started.set()
+            # Set up event handlers
+            @player.property_observer("playlist-pos")
+            def on_playlist_pos_change(_name: str, value: int | None) -> None:
+                if value == 1:  # Moved to stream (second playlist item)
+                    logger.info("Transitioned to stream")
+                    self._stream_started.set()
 
-                # Start with announcement, append stream to playlist
-                self._player.play(str(announcement_file))
-                self._player.playlist_append(stream_url)
+            # Start with announcement, append stream to playlist
+            player.play(str(announcement_file))
+            player.playlist_append(stream_url)
 
-                logger.info("Announcement playing, stream prefetching...")
+            with self._lock:
+                self._player = player
 
-            except Exception as e:
-                logger.exception("Failed to start playlist playback: %s", e)
-                self._stop_internal()
-                return False
+            logger.info("Announcement playing, stream prefetching...")
+
+        except Exception as e:
+            logger.exception("Failed to start playlist playback: %s", e)
+            # Clean up leaked player
+            if player is not None:
+                with contextlib.suppress(mpv.ShutdownError, Exception):
+                    player.terminate()
+            return False
 
         # Wait for transition to stream (outside lock to allow callbacks)
-        # Typical announcement is 3-5 seconds, add some buffer
-        if self._stream_started.wait(timeout=15.0):
+        if self._stream_started.wait(timeout=MAX_ANNOUNCEMENT_SECONDS):
+            if self._cancel.is_set():
+                return False
+
             if self._playback_error.is_set():
                 logger.warning("Stream error during prefetch, retrying normally")
                 return self.play_stream(stream_url)
 
-            # Poll for stream to start playing (up to 3 seconds)
-            # Short announcements may not give enough prefetch time
+            # Poll for stream to start playing (up to 5 seconds)
             for i in range(50):
+                if self._cancel.is_set():
+                    return False
+
                 time.sleep(0.1)
                 with self._lock:
                     if self._is_player_playing():
                         self._is_stream_active = True
                         self._current_stream_url = stream_url
+                        self._reset_backoff()
                         self._start_watchdog()
                         logger.info(
                             "Stream playing after seamless transition (waited %.1fs)",
@@ -530,7 +598,13 @@ class MpvAudioPlayer:
             logger.warning("Stream not playing after transition, retrying")
             return self.play_stream(stream_url)
 
-        logger.warning("Timeout waiting for stream transition, retrying normally")
+        # Announcement timed out
+        logger.warning(
+            "Announcement timed out after %.0fs, falling back to direct stream",
+            MAX_ANNOUNCEMENT_SECONDS,
+        )
+        with self._lock:
+            self._stop_internal(clear_desired=False)
         return self.play_stream(stream_url)
 
     def play_retrying_announcement(self) -> None:
@@ -557,19 +631,26 @@ class MpvAudioPlayer:
         """Play announcement before system shutdown."""
         self.play_announcement(self._shutdown_announcement)
 
-    def _stop_internal(self) -> None:
-        """Stop playback without acquiring lock (internal use)."""
+    def _stop_internal(self, *, clear_desired: bool = True) -> None:
+        """Stop playback without acquiring lock.
+
+        Args:
+            clear_desired: If True, also clear the desired stream URL.
+                           Set to False when the watchdog should keep retrying.
+        """
         if self._player is not None:
             with contextlib.suppress(mpv.ShutdownError, Exception):
                 self._player.terminate()
             self._player = None
         self._is_stream_active = False
         self._current_stream_url = None
-        self._desired_stream_url = None
+        if clear_desired:
+            self._desired_stream_url = None
         self._stop_watchdog()
 
     def stop(self) -> None:
-        """Stop all playback."""
+        """Stop all playback and cancel pending operations."""
+        self._cancel.set()
         with self._lock:
             self._stop_internal()
 

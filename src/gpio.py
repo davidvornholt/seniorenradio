@@ -1,14 +1,13 @@
 """GPIO controller for Seniorenradio.
 
 Handles button inputs with software debouncing and selector switch monitoring.
+Uses edge detection for both buttons and the selector switch.
 """
 
-import importlib
 import logging
 import time
 from collections.abc import Callable
 from threading import Lock, Thread
-from types import ModuleType
 from typing import Protocol
 
 from .models import GpioConfig, SwitchPosition
@@ -55,8 +54,15 @@ class RpiGpioAdapter:
     """Adapter for RPi.GPIO library."""
 
     def __init__(self) -> None:
-        """Initialize RPi.GPIO in BCM mode."""
-        self._gpio: ModuleType = importlib.import_module("RPi.GPIO")
+        """Initialize RPi.GPIO in BCM mode.
+
+        Raises:
+            ImportError: If RPi.GPIO is not available.
+            RuntimeError: If GPIO access is denied (e.g. missing permissions).
+        """
+        import importlib
+
+        self._gpio = importlib.import_module("RPi.GPIO")
         self._gpio.setmode(self._gpio.BCM)
         self._gpio.setwarnings(False)
 
@@ -77,7 +83,12 @@ class RpiGpioAdapter:
         bouncetime: int,
     ) -> None:
         """Add edge detection with callback."""
-        edge_type = self._gpio.FALLING if edge == "falling" else self._gpio.RISING
+        edge_map = {
+            "falling": self._gpio.FALLING,
+            "rising": self._gpio.RISING,
+            "both": self._gpio.BOTH,
+        }
+        edge_type = edge_map.get(edge, self._gpio.BOTH)
         self._gpio.add_event_detect(
             pin,
             edge_type,
@@ -91,7 +102,11 @@ class RpiGpioAdapter:
 
 
 class GpioController:
-    """GPIO controller for buttons and selector switch."""
+    """GPIO controller for buttons and selector switch.
+
+    Uses edge detection for both channel buttons and the selector switch,
+    avoiding busy-wait polling.
+    """
 
     def __init__(
         self,
@@ -111,6 +126,8 @@ class GpioController:
             on_channel_button: Callback for channel button presses.
             on_switch_change: Callback for switch position changes.
             on_shutdown_requested: Callback for shutdown request via long-press.
+            on_debug_requested: Callback for debug readout via long-press.
+            debug_long_press_seconds: Threshold for debug long-press.
         """
         self._config = config
         self._gpio = gpio
@@ -123,7 +140,6 @@ class GpioController:
         self._last_button_time: dict[int, float] = {}
         self._last_switch_state: bool | None = None
         self._running = False
-        self._switch_monitor_thread: Thread | None = None
         self._channel1_press_start: float | None = None
         self._channel2_press_start: float | None = None
         self._long_press_monitor_thread: Thread | None = None
@@ -146,24 +162,23 @@ class GpioController:
             )
             logger.info("Channel %d button configured on GPIO %d", i + 1, pin)
 
-        # Setup selector switch
+        # Setup selector switch with edge detection (replaces polling thread)
         self._gpio.setup_input(self._config.switch_pin, pull_up=True)
         self._last_switch_state = self._gpio.read(self._config.switch_pin)
+        self._gpio.add_event_detect(
+            self._config.switch_pin,
+            edge="both",
+            callback=self._handle_switch_edge,
+            bouncetime=self._config.debounce_ms,
+        )
         logger.info(
-            "Selector switch configured on GPIO %d (initial state: %s)",
+            "Selector switch configured on GPIO %d (initial state: %s, edge detection)",
             self._config.switch_pin,
             "ON" if self._last_switch_state else "OFF",
         )
 
-        # Start switch monitoring thread
-        self._running = True
-        self._switch_monitor_thread = Thread(
-            target=self._monitor_switch,
-            daemon=True,
-        )
-        self._switch_monitor_thread.start()
-
         # Start long-press monitor if long-press callbacks are provided
+        self._running = True
         if (
             self._on_shutdown_requested is not None
             or self._on_debug_requested is not None
@@ -215,6 +230,29 @@ class GpioController:
             self._on_channel_button(channel_index)
         except ValueError:
             logger.warning("Unknown button pin: %d", pin)
+
+    def _handle_switch_edge(self, _pin: int) -> None:
+        """Handle selector switch edge event.
+
+        Reads the current pin state and fires the switch callback
+        if the state actually changed.
+
+        Args:
+            _pin: GPIO pin that triggered the event (unused, always switch_pin).
+        """
+        current_state = self._gpio.read(self._config.switch_pin)
+
+        with self._lock:
+            if current_state == self._last_switch_state:
+                return  # Spurious edge or bounce
+            self._last_switch_state = current_state
+
+        effective_state = (
+            not current_state if self._config.invert_switch else current_state
+        )
+        position = SwitchPosition.ON if effective_state else SwitchPosition.OFF
+        logger.info("Selector switch changed to %s", position.name)
+        self._on_switch_change(position)
 
     def _monitor_long_press(self) -> None:
         """Monitor channel 1 for shutdown and channel 2 for debug long-press.
@@ -290,24 +328,6 @@ class GpioController:
                     with self._lock:
                         self._debug_triggered = False
 
-    def _monitor_switch(self) -> None:
-        """Monitor selector switch for state changes."""
-        while self._running:
-            current_state = self._gpio.read(self._config.switch_pin)
-
-            if current_state != self._last_switch_state:
-                with self._lock:
-                    self._last_switch_state = current_state
-
-                effective_state = (
-                    not current_state if self._config.invert_switch else current_state
-                )
-                position = SwitchPosition.ON if effective_state else SwitchPosition.OFF
-                logger.info("Selector switch changed to %s", position.name)
-                self._on_switch_change(position)
-
-            time.sleep(0.05)  # Poll every 50ms
-
     def get_switch_position(self) -> SwitchPosition:
         """Get current switch position.
 
@@ -322,8 +342,6 @@ class GpioController:
         """Stop GPIO monitoring and clean up."""
         logger.info("Stopping GPIO controller")
         self._running = False
-        if self._switch_monitor_thread is not None:
-            self._switch_monitor_thread.join(timeout=1.0)
         if self._long_press_monitor_thread is not None:
             self._long_press_monitor_thread.join(timeout=1.0)
         self._gpio.cleanup()

@@ -6,11 +6,15 @@ A simple internet radio application for older adults on Raspberry Pi.
 import argparse
 import logging
 import platform
+import resource
 import signal
 import subprocess
 import sys
+import time
 from functools import lru_cache
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from threading import Event, Thread
 from types import FrameType
 
 from .audio import MpvAudioPlayer
@@ -23,19 +27,46 @@ from .tts import TtsSpeaker
 
 logger = logging.getLogger(__name__)
 
+HEARTBEAT_INTERVAL_SECONDS = 30.0
 
-def setup_logging(verbose: bool) -> None:
-    """Configure logging.
+
+def setup_logging(verbose: bool, log_file: Path | None = None) -> None:
+    """Configure logging with optional rotating file handler.
 
     Args:
         verbose: Enable debug logging if True.
+        log_file: Optional path for a rotating log file.
     """
     level = logging.DEBUG if verbose else logging.INFO
+    formatter = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+
+    if log_file is not None:
+        file_handler = RotatingFileHandler(
+            log_file,
+            maxBytes=5 * 1024 * 1024,  # 5 MB
+            backupCount=3,
+        )
+        file_handler.setFormatter(formatter)
+        handlers.append(file_handler)
+
     logging.basicConfig(
         level=level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        handlers=[logging.StreamHandler()],
+        handlers=handlers,
     )
+
+
+def log_fd_limits() -> None:
+    """Log file descriptor limits for diagnostic purposes."""
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        logger.info("File descriptor limits: soft=%d, hard=%d", soft, hard)
+    except (ValueError, OSError) as e:
+        logger.warning("Could not read FD limits: %s", e)
 
 
 def parse_args() -> argparse.Namespace:
@@ -68,6 +99,18 @@ def parse_args() -> argparse.Namespace:
         default=default_gpio_backend,
         help="GPIO backend to use (rpi or mock)",
     )
+    parser.add_argument(
+        "--log-file",
+        type=Path,
+        default=None,
+        help="Path to rotating log file (5 MB × 3 backups)",
+    )
+    parser.add_argument(
+        "--heartbeat-file",
+        type=Path,
+        default=None,
+        help="Path to heartbeat file (updated every 30s for external monitoring)",
+    )
     return parser.parse_args()
 
 
@@ -99,6 +142,38 @@ def is_raspberry_pi() -> bool:
     return "Raspberry Pi" in model_text
 
 
+def start_heartbeat_writer(
+    heartbeat_file: Path,
+    stop_event: Event,
+) -> Thread:
+    """Start a background thread that writes timestamps to a heartbeat file.
+
+    Args:
+        heartbeat_file: Path to the heartbeat file.
+        stop_event: Event to signal the thread to stop.
+
+    Returns:
+        The started heartbeat thread.
+    """
+
+    def _heartbeat_loop() -> None:
+        while not stop_event.wait(HEARTBEAT_INTERVAL_SECONDS):
+            try:
+                heartbeat_file.write_text(
+                    time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                    encoding="utf-8",
+                )
+            except OSError as e:
+                logger.warning("Failed to write heartbeat file: %s", e)
+
+    thread = Thread(target=_heartbeat_loop, daemon=True, name="heartbeat")
+    thread.start()
+    logger.info(
+        "Heartbeat file: %s (every %.0fs)", heartbeat_file, HEARTBEAT_INTERVAL_SECONDS
+    )
+    return thread
+
+
 def main() -> int:
     """Run the Seniorenradio application.
 
@@ -106,9 +181,10 @@ def main() -> int:
         Exit code (0 for success, non-zero for errors).
     """
     args = parse_args()
-    setup_logging(args.verbose)
+    setup_logging(args.verbose, log_file=args.log_file)
 
     logger.info("Starting Seniorenradio")
+    log_fd_limits()
 
     # Load configuration
     try:
@@ -174,6 +250,7 @@ def main() -> int:
     if gpio_mode == "rpi" and not is_pi:
         logger.warning("RPi GPIO selected but Raspberry Pi not detected; using mock.")
         gpio_mode = "mock"
+
     if gpio_mode == "mock":
         gpio = KeyboardGpioAdapter(
             channel_pins=config.gpio.channel_pins,
@@ -183,13 +260,23 @@ def main() -> int:
             "GPIO mock controls: 1-5 = channels, s = toggle switch, hold 1 for shutdown"
         )
     else:
-        gpio = RpiGpioAdapter()
+        try:
+            gpio = RpiGpioAdapter()
+        except (ImportError, RuntimeError, OSError) as e:
+            logger.critical("Failed to initialize GPIO: %s", e)
+            logger.critical(
+                "Ensure RPi.GPIO is installed and /dev/gpiomem is accessible "
+                "(try: sudo usermod -aG gpio $USER)"
+            )
+            return 1
+
+    # Event-based shutdown signalling (works for both signals and mock mode)
+    shutdown_event = Event()
 
     # Define shutdown callback for long-press
     def handle_shutdown_request() -> None:
-        nonlocal shutdown_requested
         radio_controller.handle_shutdown_request()
-        shutdown_requested = True
+        shutdown_event.set()
         if gpio_mode == "mock":
             logger.info("Mock GPIO: shutdown requested (no system shutdown)")
             return
@@ -208,16 +295,17 @@ def main() -> int:
     )
 
     # Setup signal handlers for graceful shutdown
-    shutdown_requested = False
-
-    def handle_signal(signum: int, frame: FrameType | None) -> None:
-        nonlocal shutdown_requested
-        if not shutdown_requested:
-            shutdown_requested = True
-            logger.info("Shutdown signal received (%s)", signal.Signals(signum).name)
+    def handle_signal(signum: int, _frame: FrameType | None) -> None:
+        logger.info("Shutdown signal received (%s)", signal.Signals(signum).name)
+        shutdown_event.set()
 
     signal.signal(signal.SIGINT, handle_signal)
     signal.signal(signal.SIGTERM, handle_signal)
+
+    # Start heartbeat writer if configured
+    heartbeat_thread: Thread | None = None
+    if args.heartbeat_file is not None:
+        heartbeat_thread = start_heartbeat_writer(args.heartbeat_file, shutdown_event)
 
     # Start GPIO controller
     gpio_controller.start()
@@ -228,17 +316,17 @@ def main() -> int:
 
     logger.info("Seniorenradio is running. Press Ctrl+C to stop.")
 
-    # Main loop - wait for shutdown signal
-    try:
-        while not shutdown_requested:
-            signal.pause()
-    except KeyboardInterrupt:
-        pass
+    # Main loop — wait for shutdown event (works for signals AND mock mode)
+    shutdown_event.wait()
 
     # Graceful shutdown
     logger.info("Shutting down Seniorenradio")
     gpio_controller.stop()
     radio_controller.shutdown()
+
+    if heartbeat_thread is not None:
+        heartbeat_thread.join(timeout=1.0)
+
     logger.info("Goodbye!")
 
     return 0

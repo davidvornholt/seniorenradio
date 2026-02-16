@@ -1,11 +1,15 @@
 """Main application controller for Seniorenradio.
 
-Implements the state machine for radio behavior.
+Implements the state machine for radio behavior with a worker thread
+for non-blocking audio operations.
 """
 
 import logging
 import time
-from threading import Lock
+from collections.abc import Callable
+from functools import partial
+from threading import Event, Lock, Thread
+from typing import Protocol
 
 from .audio import AudioPlayer
 from .models import AppConfig, Channel, RadioState, SwitchPosition
@@ -15,8 +19,20 @@ from .tts import TtsSpeaker
 logger = logging.getLogger(__name__)
 
 
+class ShutdownRequester(Protocol):
+    """Protocol for requesting application shutdown."""
+
+    def request_shutdown(self) -> None:
+        """Request graceful application shutdown."""
+        ...
+
+
 class RadioController:
-    """Main controller implementing radio state machine."""
+    """Main controller implementing radio state machine.
+
+    All long-running audio operations are dispatched to a background
+    worker thread so GPIO callbacks return immediately.
+    """
 
     def __init__(
         self,
@@ -30,6 +46,8 @@ class RadioController:
         Args:
             config: Application configuration.
             audio_player: Audio player instance.
+            network_manager: Network management instance.
+            tts_speaker: TTS speaker instance.
         """
         self._config = config
         self._audio = audio_player
@@ -43,6 +61,8 @@ class RadioController:
         )
         self._wifi_selection_deadline: float | None = None
         self._wifi_selection_networks: tuple[SavedWifiNetwork, ...] = ()
+        self._worker_thread: Thread | None = None
+        self._worker_cancel = Event()
 
     @property
     def state(self) -> RadioState:
@@ -62,31 +82,46 @@ class RadioController:
             return self._config.channels[index]
         return None
 
-    def _announce_and_play_channel(self, channel: Channel) -> bool:
-        """Announce channel name and start stream.
+    def _dispatch(self, task: Callable[[], None]) -> None:
+        """Cancel current work and dispatch a new audio task to the worker.
 
-        Uses preloading to start the stream while the announcement plays,
-        reducing the perceived delay when switching channels.
+        Args:
+            task: Callable to run on the worker thread.
+        """
+        # Signal current operation to stop
+        self._worker_cancel.set()
+        self._audio.stop()
+
+        # Wait briefly for previous worker to notice cancellation
+        if self._worker_thread is not None and self._worker_thread.is_alive():
+            self._worker_thread.join(timeout=2.0)
+
+        self._worker_cancel.clear()
+        self._worker_thread = Thread(target=task, daemon=True, name="radio-worker")
+        self._worker_thread.start()
+
+    def _play_channel_task(self, channel: Channel) -> None:
+        """Worker task: announce and start playing a channel.
 
         Args:
             channel: Channel to play.
-
-        Returns:
-            True if stream started successfully.
         """
         logger.info("Announcing channel: %s", channel.name)
 
-        # Use preloading: start stream muted, play announcement, then unmute
         success = self._audio.play_announcement_with_stream_preload(
             channel.announcement_file,
             channel.stream_url,
         )
 
+        if self._worker_cancel.is_set():
+            return
+
+        with self._lock:
+            self._state = self._state.with_stream_active(success)
+
         if not success:
             logger.error("Failed to start stream for channel: %s", channel.name)
             self._audio.play_failed_announcement()
-
-        return success
 
     def handle_startup(self, initial_switch_position: SwitchPosition) -> None:
         """Handle application startup.
@@ -100,17 +135,19 @@ class RadioController:
         self._announce_boot_connectivity()
 
         with self._lock:
-            match initial_switch_position:
-                case SwitchPosition.ON:
-                    channel = self._get_channel(self._state.selected_channel_index)
-                    if channel is not None:
-                        logger.info("Startup with switch ON, playing default channel")
-                        success = self._announce_and_play_channel(channel)
-                        self._state = self._state.with_stream_active(success)
+            position = self._state.switch_position
+            channel_index = self._state.selected_channel_index
 
-                case SwitchPosition.OFF:
-                    logger.info("Startup with switch OFF, playing info announcement")
-                    self._audio.play_selector_off_announcement()
+        match position:
+            case SwitchPosition.ON:
+                channel = self._get_channel(channel_index)
+                if channel is not None:
+                    logger.info("Startup with switch ON, playing default channel")
+                    self._dispatch(partial(self._play_channel_task, channel))
+
+            case SwitchPosition.OFF:
+                logger.info("Startup with switch OFF, playing info announcement")
+                self._audio.play_selector_off_announcement()
 
     def handle_channel_button(self, channel_index: int) -> None:
         """Handle channel button press.
@@ -143,15 +180,14 @@ class RadioController:
                 logger.warning("Invalid channel index: %d", channel_index)
                 return
 
-            # Stop current stream
-            self._audio.stop()
-
-            # Update selected channel
+            # Update selected channel immediately
             self._state = self._state.with_channel(channel_index)
 
-            # Announce and play new channel
-            success = self._announce_and_play_channel(channel)
-            self._state = self._state.with_stream_active(success)
+        # Dispatch long audio operation to worker thread (outside lock)
+        logger.info(
+            "Channel %d button pressed, dispatching playback", channel_index + 1
+        )
+        self._dispatch(partial(self._play_channel_task, channel))
 
     def handle_switch_change(self, position: SwitchPosition) -> None:
         """Handle selector switch position change.
@@ -167,29 +203,38 @@ class RadioController:
             if position == previous_position:
                 return
 
-            match position:
-                case SwitchPosition.ON:
-                    channel = self._get_channel(self._state.selected_channel_index)
-                    if channel is not None:
-                        logger.info("Switch turned ON, starting playback")
-                        success = self._announce_and_play_channel(channel)
-                        self._state = self._state.with_stream_active(success)
+            channel_index = self._state.selected_channel_index
 
-                case SwitchPosition.OFF:
-                    logger.info("Switch turned OFF, stopping playback")
-                    self._audio.stop()
-                    self._audio.play_goodbye_announcement()
-                    self._state = self._state.with_stream_active(False)
+        # Dispatch audio operations outside lock
+        match position:
+            case SwitchPosition.ON:
+                channel = self._get_channel(channel_index)
+                if channel is not None:
+                    logger.info("Switch turned ON, starting playback")
+                    self._dispatch(partial(self._play_channel_task, channel))
+
+            case SwitchPosition.OFF:
+                logger.info("Switch turned OFF, stopping playback")
+                self._dispatch(self._switch_off_task)
+
+    def _switch_off_task(self) -> None:
+        """Worker task: stop playback and play goodbye announcement."""
+        self._audio.stop()
+        self._audio.play_goodbye_announcement()
+        with self._lock:
+            self._state = self._state.with_stream_active(False)
 
     def handle_shutdown_request(self) -> None:
         """Handle shutdown request from long-press on channel 1 button.
 
         Stops current playback and plays shutdown announcement.
         """
-        with self._lock:
-            logger.info("Shutdown requested via long-press")
-            self._audio.stop()
-            self._audio.play_shutdown_announcement()
+        # Cancel any current worker operations
+        self._worker_cancel.set()
+        self._audio.stop()
+
+        logger.info("Shutdown requested via long-press")
+        self._audio.play_shutdown_announcement()
 
     def handle_debug_request(self) -> None:
         """Handle debug request from long-press on channel 2 button."""
@@ -223,7 +268,12 @@ class RadioController:
     def shutdown(self) -> None:
         """Perform graceful shutdown."""
         logger.info("Shutting down radio controller")
+        self._worker_cancel.set()
         self._audio.stop()
+
+        if self._worker_thread is not None and self._worker_thread.is_alive():
+            self._worker_thread.join(timeout=3.0)
+
         self._audio.cleanup()
 
     def _announce_boot_connectivity(self) -> None:
