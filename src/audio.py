@@ -185,39 +185,6 @@ class MpvAudioPlayer:
         player.volume = self._audio_config.volume
         return player
 
-    def _wait_for_announcement_end(
-        self,
-        player: mpv.MPV,
-        timeout_seconds: float = MAX_ANNOUNCEMENT_SECONDS,
-    ) -> bool:
-        """Wait for local announcement playback to complete.
-
-        Uses polling with a timeout to prevent indefinite blocking when the
-        configured audio backend cannot actually start playback.
-        """
-        deadline = time.monotonic() + timeout_seconds
-        playback_started = False
-
-        while time.monotonic() < deadline:
-            with contextlib.suppress(Exception):
-                if player.playback_time is not None:
-                    playback_started = True
-
-            core_idle = False
-            with contextlib.suppress(Exception):
-                core_idle = bool(player.core_idle)
-
-            if playback_started and core_idle:
-                return True
-
-            time.sleep(0.1)
-
-        logger.warning(
-            "Announcement playback timed out after %.1f seconds",
-            timeout_seconds,
-        )
-        return False
-
     def _attach_stream_event_handlers(self, player: mpv.MPV) -> None:
         """Attach MPV event handlers for stream error detection."""
 

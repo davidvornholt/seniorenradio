@@ -131,7 +131,6 @@ class RadioController:
         """
         with self._lock:
             self._state = self._state.with_switch(initial_switch_position)
-            selected_channel_index = self._state.selected_channel_index
 
         self._announce_boot_connectivity()
 
@@ -199,16 +198,17 @@ class RadioController:
         with self._lock:
             previous_position = self._state.switch_position
             self._state = self._state.with_switch(position)
-            selected_channel_index = self._state.selected_channel_index
 
-        # Ignore if position hasn't actually changed
-        if position == previous_position:
-            return
+            # Ignore if position hasn't actually changed
+            if position == previous_position:
+                return
+
+            channel_index = self._state.selected_channel_index
 
         # Dispatch audio operations outside lock
         match position:
             case SwitchPosition.ON:
-                channel = self._get_channel(selected_channel_index)
+                channel = self._get_channel(channel_index)
                 if channel is not None:
                     logger.info("Switch turned ON, starting playback")
                     self._dispatch(partial(self._play_channel_task, channel))
@@ -245,9 +245,8 @@ class RadioController:
             was_playing = self._state.is_stream_active
             channel = self._get_channel(self._state.selected_channel_index)
 
-        if self._config.debug.interrupt_audio and was_playing:
-            self._audio.stop()
-            with self._lock:
+            if self._config.debug.interrupt_audio and was_playing:
+                self._audio.stop()
                 self._state = self._state.with_stream_active(False)
 
         lines = self._build_debug_lines()
