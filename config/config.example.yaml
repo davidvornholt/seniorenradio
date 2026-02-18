@@ -9,7 +9,7 @@ audio:
   # Ignored when backend is "pipewire". Use `aplay -l` to list available ALSA devices
   device: "default"
   # Volume level (0-100)
-  volume: 80
+  volume: 100
   # Stream buffering options (for stability on unreliable networks)
   buffer:
     enabled: true
