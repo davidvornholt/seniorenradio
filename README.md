@@ -9,6 +9,7 @@ An easy-to-use and intuitive internet radio application for seniors, designed to
 - **Voice announcements** when switching channels
 - **Automatic retry** on stream connection failure
 - **Safe shutdown** via long-press (5 seconds) on channel 1 button
+- **No debug long-press mode** on channel 2
 - **Low resource usage** optimized for Raspberry Pi
 
 ## Hardware Requirements
@@ -101,6 +102,7 @@ GPIO mock controls:
 - Keys `1`-`5`: Channel buttons 1-5
 - Key `s`: Toggle selector switch ON/OFF
 - Hold key `1`: Trigger shutdown request (mock mode logs only, no system shutdown)
+- Channel `2` has no special long-press action
 
 ### Running as a Service
 

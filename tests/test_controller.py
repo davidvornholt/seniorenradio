@@ -26,13 +26,11 @@ def controller_deps(tmp_audio_files: dict[str, Path]) -> dict[str, object]:
     audio.is_playing.return_value = False
 
     network = MagicMock()
-    tts = MagicMock()
 
     controller = RadioController(
         config=config,
         audio_player=audio,
         network_manager=network,
-        tts_speaker=tts,
     )
 
     return {
@@ -40,7 +38,6 @@ def controller_deps(tmp_audio_files: dict[str, Path]) -> dict[str, object]:
         "config": config,
         "audio": audio,
         "network": network,
-        "tts": tts,
     }
 
 
@@ -183,30 +180,6 @@ class TestHandleShutdownRequest:
         controller = controller_deps["controller"]
         controller.handle_shutdown_request()
         assert controller._worker_cancel.is_set()
-
-
-class TestHandleDebugRequest:
-    def test_debug_disabled_is_noop(self, controller_deps: dict) -> None:
-        controller = controller_deps["controller"]
-        tts = controller_deps["tts"]
-        controller._config = controller._config.__class__(
-            **{
-                **controller._config.__dict__,
-                "debug": controller._config.debug.__class__(
-                    **{**controller._config.debug.__dict__, "enabled": False}
-                ),
-            }
-        )
-
-        controller.handle_debug_request()
-        tts.speak_lines.assert_not_called()
-
-    def test_debug_speaks_lines(self, controller_deps: dict) -> None:
-        controller = controller_deps["controller"]
-        tts = controller_deps["tts"]
-
-        controller.handle_debug_request()
-        tts.speak_lines.assert_called()
 
 
 class TestShutdown:

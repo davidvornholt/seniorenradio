@@ -5,7 +5,7 @@ Loads and validates YAML configuration files using Pydantic.
 
 import re
 from pathlib import Path
-from typing import Literal, Self
+from typing import Self
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -15,13 +15,11 @@ from .models import (
     AudioConfig,
     BootAnnouncementsConfig,
     Channel,
-    DebugConfig,
     ErrorAnnouncementsConfig,
     GpioConfig,
     RetryConfig,
     StreamBufferConfig,
     StreamWatchdogConfig,
-    TtsConfig,
     WifiConfig,
 )
 
@@ -110,36 +108,6 @@ class WifiSchema(BaseModel):
     command_timeout_seconds: float = Field(default=5.0, ge=1.0)
     connect_timeout_seconds: float = Field(default=20.0, ge=5.0)
 
-
-class TtsSchema(BaseModel):
-    """Schema for text-to-speech configuration."""
-
-    enabled: bool = True
-    engine: Literal["espeak-ng", "pico2wave"] = "espeak-ng"
-    voice: str | None = None
-    rate: int = Field(default=160, ge=80, le=300)
-    # Volume (0-200 for espeak-ng; keep within range for other engines too).
-    volume: int = Field(default=100, ge=0, le=200)
-
-    @field_validator("volume")
-    @classmethod
-    def validate_volume(cls, v: int) -> int:
-        if v < 0 or v > 200:
-            msg = "tts.volume must be between 0 and 200"
-            raise ValueError(msg)
-        return v
-
-
-class DebugSchema(BaseModel):
-    """Schema for debug readout configuration."""
-
-    enabled: bool = True
-    long_press_seconds: float = Field(default=4.0, ge=1.0)
-    selection_timeout_seconds: float = Field(default=12.0, ge=3.0)
-    max_networks: int = Field(default=5, ge=1, le=10)
-    interrupt_audio: bool = True
-
-
 class BootAnnouncementsSchema(BaseModel):
     """Schema for boot announcement audio files."""
 
@@ -163,8 +131,6 @@ class ConfigSchema(BaseModel):
     retry: RetrySchema = Field(default_factory=RetrySchema)
     watchdog: WatchdogSchema = Field(default_factory=WatchdogSchema)
     wifi: WifiSchema = Field(default_factory=WifiSchema)
-    tts: TtsSchema = Field(default_factory=TtsSchema)
-    debug: DebugSchema = Field(default_factory=DebugSchema)
     channels: list[ChannelSchema] = Field(min_length=1, max_length=5)
     default_channel: int = Field(default=0, ge=0)
     audio_dir: str = DEFAULT_AUDIO_DIR
@@ -272,20 +238,6 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:
             nmcli_path=schema.wifi.nmcli_path,
             command_timeout_seconds=schema.wifi.command_timeout_seconds,
             connect_timeout_seconds=schema.wifi.connect_timeout_seconds,
-        ),
-        tts=TtsConfig(
-            enabled=schema.tts.enabled,
-            engine=schema.tts.engine,
-            voice=schema.tts.voice,
-            rate=schema.tts.rate,
-            volume=schema.tts.volume,
-        ),
-        debug=DebugConfig(
-            enabled=schema.debug.enabled,
-            long_press_seconds=schema.debug.long_press_seconds,
-            selection_timeout_seconds=schema.debug.selection_timeout_seconds,
-            max_networks=schema.debug.max_networks,
-            interrupt_audio=schema.debug.interrupt_audio,
         ),
         channels=channels,
         default_channel_index=schema.default_channel,

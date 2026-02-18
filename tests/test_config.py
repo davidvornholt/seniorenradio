@@ -134,7 +134,6 @@ class TestLoadConfig:
         assert config.retry.delay_seconds == 5.0
         assert config.gpio.debounce_ms == 200
         assert config.watchdog.enabled is True
-        assert config.tts.engine == "espeak-ng"
 
     def test_channel_announcement_path_resolved(
         self, write_yaml: WriteYamlFixture

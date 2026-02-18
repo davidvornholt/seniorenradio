@@ -15,13 +15,11 @@ from src.models import (
     AudioConfig,
     BootAnnouncementsConfig,
     Channel,
-    DebugConfig,
     ErrorAnnouncementsConfig,
     GpioConfig,
     RetryConfig,
     StreamBufferConfig,
     StreamWatchdogConfig,
-    TtsConfig,
     WifiConfig,
 )
 
@@ -291,26 +289,6 @@ def make_wifi_config() -> WifiConfig:
     )
 
 
-def make_tts_config(enabled: bool = False) -> TtsConfig:
-    return TtsConfig(
-        enabled=enabled,
-        engine="espeak-ng",
-        voice=None,
-        rate=160,
-        volume=100,
-    )
-
-
-def make_debug_config(enabled: bool = True) -> DebugConfig:
-    return DebugConfig(
-        enabled=enabled,
-        long_press_seconds=4.0,
-        selection_timeout_seconds=12.0,
-        max_networks=5,
-        interrupt_audio=True,
-    )
-
-
 def make_channels(audio_dir: Path) -> tuple[Channel, ...]:
     return (
         Channel(
@@ -342,8 +320,6 @@ def make_app_config(audio_dir: Path) -> AppConfig:
         retry=make_retry_config(),
         watchdog=make_watchdog_config(),
         wifi=make_wifi_config(),
-        tts=make_tts_config(),
-        debug=make_debug_config(),
         channels=channels,
         default_channel_index=0,
         audio_dir=audio_dir,
@@ -406,15 +382,4 @@ def mock_network_manager() -> MagicMock:
     mock.get_active_wifi.return_value = Result(value=None, error=None)
     mock.list_saved_wifi.return_value = Result(value=(), error=None)
     mock.connect_to_saved_wifi.return_value = Result(value=True, error=None)
-    return mock
-
-
-@pytest.fixture
-def mock_tts_speaker() -> MagicMock:
-    """Create a mock TtsSpeaker."""
-    from src.tts import TtsResult, TtsSpeaker
-
-    mock = MagicMock(spec=TtsSpeaker)
-    mock.speak.return_value = TtsResult(success=True, error=None)
-    mock.speak_lines.return_value = TtsResult(success=True, error=None)
     return mock

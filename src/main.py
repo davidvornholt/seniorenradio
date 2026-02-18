@@ -23,7 +23,6 @@ from .controller import RadioController
 from .gpio import GpioController, RpiGpioAdapter
 from .gpio_mock import KeyboardGpioAdapter
 from .network import NetworkManager
-from .tts import TtsSpeaker
 
 logger = logging.getLogger(__name__)
 
@@ -236,13 +235,10 @@ def main() -> int:
         internet_check_timeout_seconds=config.watchdog.internet_check_timeout_seconds,
     )
 
-    tts_speaker = TtsSpeaker(config=config.tts)
-
     radio_controller = RadioController(
         config=config,
         audio_player=audio_player,
         network_manager=network_manager,
-        tts_speaker=tts_speaker,
     )
 
     gpio_mode = args.gpio
@@ -290,8 +286,6 @@ def main() -> int:
         on_channel_button=radio_controller.handle_channel_button,
         on_switch_change=radio_controller.handle_switch_change,
         on_shutdown_requested=handle_shutdown_request,
-        on_debug_requested=radio_controller.handle_debug_request,
-        debug_long_press_seconds=config.debug.long_press_seconds,
     )
 
     # Setup signal handlers for graceful shutdown

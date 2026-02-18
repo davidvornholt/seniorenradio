@@ -89,28 +89,6 @@ class WifiConfig:
 
 
 @dataclass(frozen=True)
-class TtsConfig:
-    """Text-to-speech configuration."""
-
-    enabled: bool
-    engine: str
-    voice: str | None
-    rate: int
-    volume: int
-
-
-@dataclass(frozen=True)
-class DebugConfig:
-    """Debug readout configuration."""
-
-    enabled: bool
-    long_press_seconds: float
-    selection_timeout_seconds: float
-    max_networks: int
-    interrupt_audio: bool
-
-
-@dataclass(frozen=True)
 class BootAnnouncementsConfig:
     """Boot announcement audio files."""
 
@@ -136,8 +114,6 @@ class AppConfig:
     retry: RetryConfig
     watchdog: StreamWatchdogConfig
     wifi: WifiConfig
-    tts: TtsConfig
-    debug: DebugConfig
     channels: tuple[Channel, ...]
     default_channel_index: int
     audio_dir: Path

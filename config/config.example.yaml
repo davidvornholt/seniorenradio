@@ -61,27 +61,6 @@ wifi:
   command_timeout_seconds: 5
   connect_timeout_seconds: 20
 
-# Text-to-speech for debug readouts
-tts:
-  enabled: true
-  # TTS engine binary
-  engine: "espeak-ng"
-  # Voice (null = default)
-  voice: null
-  # Speech rate (words per minute for espeak-ng)
-  rate: 120
-  # Volume (0-200 for espeak-ng)
-  volume: 100
-
-# Debug readout behavior (triggered via long-press on Channel 2)
-debug:
-  enabled: false
-  long_press_seconds: 4
-  selection_timeout_seconds: 12
-  max_networks: 5
-  # Stop stream audio while speaking diagnostics
-  interrupt_audio: true
-
 # Directory containing announcement audio files (relative to this config file)
 audio_dir: "../audio"
 
