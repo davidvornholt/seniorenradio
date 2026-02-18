@@ -1,4 +1,4 @@
-# Seniorenradio Configuration
+# Klarfunk Box Configuration
 # Copy this file to ./config/config.yaml and customize
 
 # Audio output settings
@@ -80,6 +80,10 @@ boot_announcements:
   connected: "boot_connected.mp3"
   # Played when internet is not available
   no_internet: "boot_no_internet.mp3"
+
+# Startup branding announcement (relative to audio_dir)
+# Should contain product name + slogan, e.g. "Klarfunk Box - Einfach Radio hören."
+startup_branding_announcement: "startup_branding.mp3"
 
 # Radio channels (up to 5)
 # Each channel needs:

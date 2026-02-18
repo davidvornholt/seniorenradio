@@ -1,4 +1,4 @@
-"""Domain models for Seniorenradio.
+"""Domain models for Klarfunk Box.
 
 Immutable data structures representing configuration and application state.
 """
@@ -119,6 +119,7 @@ class AppConfig:
     audio_dir: Path
     error_announcements: ErrorAnnouncementsConfig
     boot_announcements: BootAnnouncementsConfig
+    startup_branding_announcement: Path
     goodbye_announcement: Path
     selector_off_announcement: Path
     shutdown_announcement: Path

@@ -1,4 +1,4 @@
-"""Shared test fixtures and comprehensive mocks for seniorenradio tests."""
+"""Shared test fixtures and comprehensive mocks for Klarfunk Box tests."""
 
 from __future__ import annotations
 
@@ -203,6 +203,7 @@ def tmp_audio_files(tmp_path: Path) -> dict[str, Path]:
         "channel_1": "channel_1.mp3",
         "channel_2": "channel_2.mp3",
         "channel_3": "channel_3.mp3",
+        "startup_branding": "startup_branding.mp3",
         "goodbye": "goodbye.mp3",
         "selector_off": "selector_off.mp3",
         "shutdown": "shutdown.mp3",
@@ -332,6 +333,7 @@ def make_app_config(audio_dir: Path) -> AppConfig:
             connected=audio_dir / "boot_connected.mp3",
             no_internet=audio_dir / "boot_no_internet.mp3",
         ),
+        startup_branding_announcement=audio_dir / "startup_branding.mp3",
         goodbye_announcement=audio_dir / "goodbye.mp3",
         selector_off_announcement=audio_dir / "selector_off.mp3",
         shutdown_announcement=audio_dir / "shutdown.mp3",

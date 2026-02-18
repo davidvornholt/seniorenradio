@@ -1,4 +1,4 @@
-"""Seniorenradio - Main entry point.
+"""Klarfunk Box - Main entry point.
 
 A simple internet radio application for older adults on Raspberry Pi.
 """
@@ -19,6 +19,7 @@ from types import FrameType
 
 from .audio import MpvAudioPlayer
 from .config import DEFAULT_CONFIG_PATH, load_config
+from .constants import ANNOUNCEMENT_TIMEOUT_SECONDS
 from .controller import RadioController
 from .gpio import GpioController, RpiGpioAdapter
 from .gpio_mock import KeyboardGpioAdapter
@@ -76,7 +77,7 @@ def parse_args() -> argparse.Namespace:
     """
     default_gpio_backend = get_default_gpio_backend()
     parser = argparse.ArgumentParser(
-        prog="seniorenradio",
+        prog="klarfunk-box",
         description="A simple internet radio for older adults",
     )
     parser.add_argument(
@@ -173,8 +174,31 @@ def start_heartbeat_writer(
     return thread
 
 
+def start_startup_branding_announcement(
+    audio_player: MpvAudioPlayer,
+    announcement_file: Path,
+) -> Thread | None:
+    """Start startup branding announcement playback in the background."""
+    if not announcement_file.exists():
+        return None
+
+    def _play_startup_branding() -> None:
+        logger.info("Playing startup branding announcement")
+        success = audio_player.play_announcement(announcement_file)
+        if not success:
+            logger.warning("Startup branding announcement did not complete")
+
+    thread = Thread(
+        target=_play_startup_branding,
+        daemon=True,
+        name="startup-branding",
+    )
+    thread.start()
+    return thread
+
+
 def main() -> int:
-    """Run the Seniorenradio application.
+    """Run the Klarfunk Box application.
 
     Returns:
         Exit code (0 for success, non-zero for errors).
@@ -182,7 +206,7 @@ def main() -> int:
     args = parse_args()
     setup_logging(args.verbose, log_file=args.log_file)
 
-    logger.info("Starting Seniorenradio")
+    logger.info("Starting Klarfunk Box")
     log_fd_limits()
 
     # Load configuration
@@ -214,6 +238,11 @@ def main() -> int:
     for name, path in error_files:
         if not path.exists():
             logger.warning("Error announcement file '%s' not found: %s", name, path)
+    if not config.startup_branding_announcement.exists():
+        logger.warning(
+            "Startup branding announcement file not found: %s",
+            config.startup_branding_announcement,
+        )
 
     # Initialize components
     audio_player = MpvAudioPlayer(
@@ -224,6 +253,10 @@ def main() -> int:
         goodbye_announcement=config.goodbye_announcement,
         selector_off_announcement=config.selector_off_announcement,
         shutdown_announcement=config.shutdown_announcement,
+    )
+    startup_branding_thread = start_startup_branding_announcement(
+        audio_player=audio_player,
+        announcement_file=config.startup_branding_announcement,
     )
 
     network_manager = NetworkManager(
@@ -304,17 +337,22 @@ def main() -> int:
     # Start GPIO controller
     gpio_controller.start()
 
+    # Keep initialization non-blocking while branding audio plays.
+    # Before startup announcements/channels, wait briefly to avoid overlap.
+    if startup_branding_thread is not None:
+        startup_branding_thread.join(timeout=ANNOUNCEMENT_TIMEOUT_SECONDS)
+
     # Handle startup based on switch position
     initial_switch_position = gpio_controller.get_switch_position()
     radio_controller.handle_startup(initial_switch_position)
 
-    logger.info("Seniorenradio is running. Press Ctrl+C to stop.")
+    logger.info("Klarfunk Box is running. Press Ctrl+C to stop.")
 
     # Main loop — wait for shutdown event (works for signals AND mock mode)
     shutdown_event.wait()
 
     # Graceful shutdown
-    logger.info("Shutting down Seniorenradio")
+    logger.info("Shutting down Klarfunk Box")
     gpio_controller.stop()
     radio_controller.shutdown()
 

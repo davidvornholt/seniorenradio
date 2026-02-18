@@ -1,4 +1,4 @@
-"""GPIO controller for Seniorenradio.
+"""GPIO controller for Klarfunk Box.
 
 Handles button inputs with software debouncing and selector switch monitoring.
 Uses edge detection for both buttons and the selector switch.

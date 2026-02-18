@@ -1,4 +1,4 @@
-"""Audio service for Seniorenradio.
+"""Audio service for Klarfunk Box.
 
 MPV-based audio playback for announcements and internet radio streams.
 Uses playlist prefetching for seamless transition from announcement to stream.
@@ -14,6 +14,7 @@ from typing import Protocol
 
 import mpv
 
+from .constants import ANNOUNCEMENT_TIMEOUT_SECONDS
 from .models import (
     AudioConfig,
     ErrorAnnouncementsConfig,
@@ -23,7 +24,6 @@ from .models import (
 
 logger = logging.getLogger(__name__)
 
-MAX_ANNOUNCEMENT_SECONDS = 15.0
 MAX_RECONNECT_BACKOFF_SECONDS = 60.0
 
 
@@ -370,10 +370,10 @@ class MpvAudioPlayer:
 
             player.play(str(file))
 
-            if not done.wait(timeout=MAX_ANNOUNCEMENT_SECONDS):
+            if not done.wait(timeout=ANNOUNCEMENT_TIMEOUT_SECONDS):
                 logger.warning(
                     "Announcement timed out after %.0fs: %s",
-                    MAX_ANNOUNCEMENT_SECONDS,
+                    ANNOUNCEMENT_TIMEOUT_SECONDS,
                     file.name,
                 )
                 return False
@@ -569,7 +569,7 @@ class MpvAudioPlayer:
             return False
 
         # Wait for transition to stream (outside lock to allow callbacks)
-        if self._stream_started.wait(timeout=MAX_ANNOUNCEMENT_SECONDS):
+        if self._stream_started.wait(timeout=ANNOUNCEMENT_TIMEOUT_SECONDS):
             if self._cancel.is_set():
                 return False
 
@@ -601,7 +601,7 @@ class MpvAudioPlayer:
         # Announcement timed out
         logger.warning(
             "Announcement timed out after %.0fs, falling back to direct stream",
-            MAX_ANNOUNCEMENT_SECONDS,
+            ANNOUNCEMENT_TIMEOUT_SECONDS,
         )
         with self._lock:
             self._stop_internal(clear_desired=False)

@@ -1,4 +1,4 @@
-"""Main application controller for Seniorenradio.
+"""Main application controller for Klarfunk Box.
 
 Implements the state machine for radio behavior with a worker thread
 for non-blocking audio operations.

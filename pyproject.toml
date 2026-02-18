@@ -1,7 +1,7 @@
 [project]
-name = "seniorenradio"
+name = "klarfunk-box"
 version = "0.1.0"
-description = "An easy-to-use and intuitive radio app for seniors to run on a Raspberry Pi"
+description = "Klarfunk Box: an easy-to-use and intuitive radio app for seniors on Raspberry Pi"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

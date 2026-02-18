@@ -1,4 +1,4 @@
-"""Configuration loader for Seniorenradio.
+"""Configuration loader for Klarfunk Box.
 
 Loads and validates YAML configuration files using Pydantic.
 """
@@ -140,6 +140,7 @@ class ConfigSchema(BaseModel):
     boot_announcements: BootAnnouncementsSchema = Field(
         default_factory=BootAnnouncementsSchema
     )
+    startup_branding_announcement: str = "startup_branding.mp3"
     goodbye_announcement: str = "goodbye.mp3"
     selector_off_announcement: str = "selector_off.mp3"
     shutdown_announcement: str = "shutdown.mp3"
@@ -251,6 +252,7 @@ def load_config(config_path: Path = DEFAULT_CONFIG_PATH) -> AppConfig:
             connected=audio_dir / schema.boot_announcements.connected,
             no_internet=audio_dir / schema.boot_announcements.no_internet,
         ),
+        startup_branding_announcement=audio_dir / schema.startup_branding_announcement,
         goodbye_announcement=audio_dir / schema.goodbye_announcement,
         selector_off_announcement=audio_dir / schema.selector_off_announcement,
         shutdown_announcement=audio_dir / schema.shutdown_announcement,

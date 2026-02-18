@@ -1,4 +1,4 @@
-"""Network management helpers for Seniorenradio (NetworkManager via nmcli)."""
+"""Network management helpers for Klarfunk Box (NetworkManager via nmcli)."""
 
 from __future__ import annotations
 

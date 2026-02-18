@@ -134,6 +134,7 @@ class TestLoadConfig:
         assert config.retry.delay_seconds == 5.0
         assert config.gpio.debounce_ms == 200
         assert config.watchdog.enabled is True
+        assert config.startup_branding_announcement == audio_dir / "startup_branding.mp3"
 
     def test_channel_announcement_path_resolved(
         self, write_yaml: WriteYamlFixture

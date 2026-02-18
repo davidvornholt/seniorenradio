@@ -1,4 +1,4 @@
-# Seniorenradio
+# Klarfunk Box
 
 An easy-to-use and intuitive internet radio application for seniors, designed to run on Raspberry Pi with minimal resources (512 MB RAM).
 
@@ -59,8 +59,8 @@ sudo usermod -aG gpio $USER
 
 ```bash
 # Clone the repository
-git clone https://github.com/davidvornholt/seniorenradio.git
-cd seniorenradio
+git clone https://github.com/davidvornholt/klarfunk-box.git
+cd klarfunk-box
 
 # Install dependencies
 uv sync
@@ -91,10 +91,10 @@ uv run python -m src.main --config /path/to/config.yaml
 uv run python -m src.main --gpio mock
 
 # Enable rotating log file (5 MB × 3 backups)
-uv run python -m src.main --log-file /var/log/seniorenradio.log
+uv run python -m src.main --log-file /var/log/klarfunk-box.log
 
 # Enable heartbeat file for external monitoring (updated every 30s)
-uv run python -m src.main --heartbeat-file /tmp/seniorenradio-heartbeat
+uv run python -m src.main --heartbeat-file /tmp/klarfunk-box-heartbeat
 ```
 
 GPIO mock controls:
@@ -117,9 +117,9 @@ Run these commands from inside the repository directory:
 
 ```bash
 # Create the service file (auto-detects user and directory)
-sudo tee /etc/systemd/system/seniorenradio.service > /dev/null <<EOF
+sudo tee /etc/systemd/system/klarfunk-box.service > /dev/null <<EOF
 [Unit]
-Description=Seniorenradio Internet Radio
+Description=Klarfunk Box Internet Radio
 After=network-online.target sound.target
 Wants=network-online.target
 
@@ -138,16 +138,16 @@ EOF
 
 # Enable and start the service
 sudo systemctl daemon-reload
-sudo systemctl enable seniorenradio
-sudo systemctl start seniorenradio
+sudo systemctl enable klarfunk-box
+sudo systemctl start klarfunk-box
 ```
 
 ```bash
 # Check status
-sudo systemctl status seniorenradio
+sudo systemctl status klarfunk-box
 
 # View logs (follow mode)
-journalctl -u seniorenradio -f
+journalctl -u klarfunk-box -f
 ```
 
 #### Option B: User Service (PipeWire)
@@ -164,16 +164,16 @@ mkdir -p ~/.config/systemd/user
 
 ```bash
 # Create the user service file (run from inside the repository directory)
-tee ~/.config/systemd/user/seniorenradio.service > /dev/null <<EOF
+tee ~/.config/systemd/user/klarfunk-box.service > /dev/null <<EOF
 [Unit]
-Description=Seniorenradio Internet Radio
+Description=Klarfunk Box Internet Radio
 After=network.target pipewire.service wireplumber.service
 Wants=pipewire.service wireplumber.service
 
 [Service]
 Type=simple
 WorkingDirectory=$(pwd)
-ExecStart=$(pwd)/.venv/bin/python -m src.main --log-file $(pwd)/seniorenradio.log --heartbeat-file /tmp/seniorenradio-heartbeat
+ExecStart=$(pwd)/.venv/bin/python -m src.main --log-file $(pwd)/klarfunk-box.log --heartbeat-file /tmp/klarfunk-box-heartbeat
 Restart=always
 RestartSec=5
 
@@ -183,16 +183,16 @@ EOF
 
 # Enable and start the service
 systemctl --user daemon-reload
-systemctl --user enable seniorenradio
-systemctl --user start seniorenradio
+systemctl --user enable klarfunk-box
+systemctl --user start klarfunk-box
 ```
 
 ```bash
 # Check status
-systemctl --user status seniorenradio
+systemctl --user status klarfunk-box
 
 # View logs (follow mode)
-journalctl --user -u seniorenradio -f
+journalctl --user -u klarfunk-box -f
 ```
 
 ## Configuration
@@ -207,6 +207,7 @@ Edit `config/config.yaml` to customize:
 - **Buffer settings**: Cache seconds and max buffer size; increase for high-latency or bursty networks, decrease for memory-constrained devices.
 - **Watchdog settings**: Stream health checks and reconnect timing; tighten for unreliable networks and relax for stable, low-latency connections.
 - **audio_dir**: Path to audio files (relative to config file, or absolute)
+- **startup_branding_announcement**: Startup audio file with product name and slogan
 - **invert_switch**: Swap ON/OFF positions of selector switch (useful if wiring causes opposite behavior)
 
 See `config/config.example.yaml` for a complete example.
@@ -215,15 +216,16 @@ See `config/config.example.yaml` for a complete example.
 
 Place your announcement audio files in the `audio/` directory:
 
-- `channel_1.mp3` through `channel_5.mp3`: Channel announcements
-- `error_retrying.mp3`: Played when retrying connection
-- `error_failed.mp3`: Played when all retries failed
-- `error_no_internet.mp3`: Played when no internet connection
-- `goodbye.mp3`: Played when radio is turned off
-- `selector_off.mp3`: Played when radio starts with selector switch off
-- `shutdown.mp3`: Played before system shutdown (triggered by holding channel 1 for 5 seconds)
+- `channel_1.mp3` through `channel_5.mp3`: Channel announcements. Example: "Now playing SWR1 Baden-Württemberg. Have a lovely time listening."
+- `error_retrying.mp3`: Played when retrying connection. Example: "Please wait a moment. The radio station connection is being restored."
+- `error_failed.mp3`: Played when all retries failed. Example: "Connection is currently unavailable. Please try again in a little while."
+- `error_no_internet.mp3`: Played when no internet connection. Example: "There is currently no internet connection. Please check Wi-Fi and try again."
+- `startup_branding.mp3`: Played immediately on app start (while app continues initialization). Example: "Welcome to Klarfunk Box - simple radio, made for you."
+- `goodbye.mp3`: Played when radio is turned off. Example: "Goodbye for now, and thank you for listening."
+- `selector_off.mp3`: Played when radio starts with selector switch off. Example: "Welcome. The radio is ready. Please switch to ON when you want to listen."
+- `shutdown.mp3`: Played before system shutdown (triggered by holding channel 1 for 5 seconds). Example: "The device will now shut down safely. See you soon."
 
-See `audio/README.md` for recording tips and example scripts.
+All announcement audio files use the same timeout: **15 seconds**. If playback does not complete in time, the app continues with the next startup/playback step.
 
 ## Troubleshooting
 
@@ -238,7 +240,7 @@ See `audio/README.md` for recording tips and example scripts.
 
 1. Check internet connection: `ping google.de`
 2. Test stream URL: `mpv --no-video "STREAM_URL"`
-3. Check logs: `journalctl -u seniorenradio -f`
+3. Check logs: `journalctl -u klarfunk-box -f`
 
 ### Buttons not responding
 

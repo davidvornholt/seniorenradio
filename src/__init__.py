@@ -1,1 +1,1 @@
-"""Seniorenradio - A simple internet radio for older adults."""
+"""Klarfunk Box - A simple internet radio for older adults."""
