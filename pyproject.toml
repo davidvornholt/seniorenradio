@@ -15,7 +15,7 @@ dependencies = [
 dev = [
     "pyrefly>=0.50.1",
     "ruff>=0.14.14",
-    "pytest>=8.0",
+    "pytest>=9.0.3",
     "pytest-mock>=3.14",
 ]
 
